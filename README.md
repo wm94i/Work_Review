@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/wm94i/work-review/releases/latest">
-    <img src="https://img.shields.io/github/v/release/wm94i/work-review?style=flat-square" alt="Release">
+  <a href="https://github.com/wm94i/Work_Review/releases/latest">
+    <img src="https://img.shields.io/github/v/release/wm94i/Work_Review?style=flat-square" alt="Release">
   </a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue?style=flat-square" alt="Platform">
-  <img src="https://img.shields.io/github/license/wm94i/work-review?style=flat-square" alt="License">
+  <img src="https://img.shields.io/github/license/wm94i/Work_Review?style=flat-square" alt="License">
 </p>
 
 ---
@@ -93,7 +93,7 @@ Work Review 的核心是**自动记录**，AI 是锦上添花的总结工具。
 
 ## 下载安装
 
-从 [Releases](https://github.com/wm94i/work-review/releases/latest) 页面下载最新版本：
+从 [Releases](https://github.com/wm94i/Work_Review/releases/latest) 页面下载最新版本：
 
 | 平台 | 下载 |
 |------|------|
