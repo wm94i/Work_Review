@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复前端 A11y 可访问性警告
 - Clippy 代码风格优化
 
-## [1.0.0] - 2026-02-04
+## [1.0.0] 
 
 ### 核心功能
 - 智能工作追踪：自动记录应用使用情况
