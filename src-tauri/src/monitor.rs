@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{AppError, Result};
 
 /// 活动窗口信息
 #[derive(Debug, Clone)]
