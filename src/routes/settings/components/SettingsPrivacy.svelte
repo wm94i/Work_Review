@@ -100,9 +100,9 @@
   }
 </script>
 
-<div class="card p-6 mb-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-1">🔒 隐私设置</h3>
-  <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">所有数据仅存储在本地，不会上传到任何服务器</p>
+<div class="card p-5 mb-5">
+  <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">隐私设置</h3>
+  <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">所有数据仅存储在本地，不会上传到任何服务器</p>
   
   <div class="space-y-6">
     <!-- 应用规则 -->

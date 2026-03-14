@@ -2,8 +2,10 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { cache } from '../../lib/stores/cache.js';
-  
+
   import SettingsGeneral from './components/SettingsGeneral.svelte';
+  import SettingsAI from './components/SettingsAI.svelte';
+  import SettingsAppearance from './components/SettingsAppearance.svelte';
   import SettingsPrivacy from './components/SettingsPrivacy.svelte';
   import SettingsStorage from './components/SettingsStorage.svelte';
 
@@ -22,6 +24,8 @@
 
   const tabs = [
     { id: 'general', label: '常规', icon: 'general' },
+    { id: 'ai', label: 'AI 模型', icon: 'ai' },
+    { id: 'appearance', label: '外观', icon: 'appearance' },
     { id: 'privacy', label: '隐私', icon: 'privacy' },
     { id: 'storage', label: '存储', icon: 'storage' },
   ];
@@ -34,7 +38,7 @@
       config = await invoke('get_config');
       providers = await invoke('get_ai_providers');
       storageStats = await invoke('get_storage_stats');
-      
+
       // 确保对象存在
       if (!config.ai_provider) {
         config.ai_provider = { provider: 'ollama', endpoint: 'http://localhost:11434', api_key: null, model: 'llava', vision_model: 'llava' };
@@ -104,26 +108,18 @@
   });
 </script>
 
-<div class="p-6 animate-fadeIn">
-  <div class="flex justify-between items-center mb-8">
+<div class="p-5 animate-fadeIn">
+  <div class="flex justify-between items-center mb-5">
     <div>
-      <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700/50 dark:to-slate-600/50 flex items-center justify-center">
-          <svg class="w-4 h-4 text-slate-600 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-        </div>
-        设置
-      </h2>
-      <p class="text-sm text-slate-400 dark:text-slate-500 mt-1 ml-10">应用配置与隐私规则</p>
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">设置</h2>
+      <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">应用配置与隐私规则</p>
     </div>
-    
+
     <!-- 保存按钮 -->
     <button
       on:click={saveConfig}
       disabled={loading || saving}
-      class="px-4 py-2 text-sm font-medium rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg shadow-indigo-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center gap-2 disabled:opacity-50"
+      class="px-4 py-2 text-sm font-medium rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white transition-all flex items-center gap-2 disabled:opacity-50"
     >
       {#if saving}
         <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
@@ -148,24 +144,27 @@
       <button on:click={loadConfig} class="mt-2 text-sm underline">重试</button>
     </div>
   {:else if config}
-    <!-- 标签栏和内容区域 -->
     <div class="max-w-2xl">
       <!-- 标签栏 -->
-      <div class="flex gap-1 mb-6 p-1 bg-slate-100/50 dark:bg-slate-800/50 rounded-xl">
+      <div class="flex gap-1 mb-5 p-1 bg-slate-100/50 dark:bg-slate-800/50 rounded-xl">
         {#each tabs as tab}
           <button
             on:click={() => activeTab = tab.id}
-            class="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-lg text-sm font-medium transition-all duration-200
-                   {activeTab === tab.id 
-                     ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' 
+            class="flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-medium transition-all duration-200
+                   {activeTab === tab.id
+                     ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}"
           >
             {#if tab.icon === 'general'}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            {:else if tab.icon === 'ai'}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            {:else if tab.icon === 'appearance'}
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
             {:else if tab.icon === 'privacy'}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
             {:else if tab.icon === 'storage'}
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
             {/if}
             <span>{tab.label}</span>
           </button>
@@ -175,20 +174,28 @@
       <!-- 内容区域 -->
       <div>
       {#if activeTab === 'general'}
-        <SettingsGeneral bind:config {providers} on:change={() => {}} />
+        <SettingsGeneral bind:config on:change={() => {}} />
+      {:else if activeTab === 'ai'}
+        <div class="card p-5">
+          <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">AI 模型配置</h3>
+          <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">配置 AI 模型用于生成工作日报</p>
+          <SettingsAI bind:config {providers} on:change={() => {}} />
+        </div>
+      {:else if activeTab === 'appearance'}
+        <SettingsAppearance bind:config on:change={() => {}} />
       {:else if activeTab === 'privacy'}
-        <SettingsPrivacy 
-          bind:config 
+        <SettingsPrivacy
+          bind:config
           {runningApps}
           {recentApps}
-          on:change={() => {}} 
+          on:change={() => {}}
         />
       {:else if activeTab === 'storage'}
-        <SettingsStorage 
-          bind:config 
-          {storageStats} 
-          on:change={() => {}} 
-          on:clearCache={handleClearCache} 
+        <SettingsStorage
+          bind:config
+          {storageStats}
+          on:change={() => {}}
+          on:clearCache={handleClearCache}
         />
       {/if}
       </div>

@@ -57,9 +57,9 @@
 </script>
 
 <!-- 记录设置 -->
-<div class="card p-6 mb-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-1">⚙️ 记录设置</h3>
-  <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">控制活动记录的频率和保留策略</p>
+<div class="card p-5 mb-5">
+  <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">记录设置</h3>
+  <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">控制活动记录的频率和保留策略</p>
   
   <div class="space-y-5">
     <!-- 轮询间隔 -->
@@ -112,8 +112,8 @@
 
 <!-- 存储统计 -->
 {#if storageStats}
-<div class="card p-6 mb-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-4">💾 存储使用</h3>
+<div class="card p-5 mb-5">
+  <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4">存储使用</h3>
   
   <!-- 存储进度条 -->
   <div class="mb-5">
@@ -150,8 +150,8 @@
 </div>
 
 <!-- 数据管理 -->
-<div class="card p-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-4">🧹 数据管理</h3>
+<div class="card p-5">
+  <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4">数据管理</h3>
   <div class="space-y-3">
     <!-- 清理缓存 -->
     <div class="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/30 rounded-xl">

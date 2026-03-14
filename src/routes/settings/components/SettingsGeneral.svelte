@@ -2,11 +2,9 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
-  import SettingsAI from './SettingsAI.svelte';
-  
+
   export let config;
-  export let providers = [];
-  
+
   const dispatch = createEventDispatcher();
 
   // 开机自启动状态（独立于 config，由系统 API 驱动）
@@ -14,9 +12,7 @@
 
   onMount(async () => {
     try {
-      // 初始化时从系统查询实际的自启动状态
       autoStartEnabled = await isAutostartEnabled();
-      // 同步 config 字段（可能与系统状态不一致）
       if (config.auto_start !== autoStartEnabled) {
         config.auto_start = autoStartEnabled;
         dispatch('change', config);
@@ -98,24 +94,24 @@
 </script>
 
 <!-- 基本设置 -->
-<div class="card p-6 mb-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-1">⚙️ 基本设置</h3>
-  <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">工作时间和应用行为</p>
-  
-  <div class="space-y-5">
+<div class="card p-5">
+  <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">基本设置</h3>
+  <p class="text-xs text-slate-400 dark:text-slate-500 mb-4">工作时间和应用行为</p>
+
+  <div class="space-y-4">
     <!-- 工作时间 -->
     <div>
       <div class="flex items-center justify-between mb-3">
         <span class="text-sm font-medium text-slate-700 dark:text-slate-300">工作时间</span>
         <span class="text-xs text-slate-400">共 {workHours}</span>
       </div>
-      
+
       <div class="flex items-center gap-3">
         <!-- 开始时间 -->
         <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2">
           <span class="text-xs text-slate-400">从</span>
-          <input 
-            type="time" 
+          <input
+            type="time"
             value={startTimeDisplay}
             on:change={(e) => {
               const [h, m] = e.target.value.split(':').map(Number);
@@ -124,14 +120,14 @@
             class="bg-transparent text-sm font-mono text-slate-800 dark:text-white focus:outline-none"
           />
         </div>
-        
+
         <span class="text-slate-300 dark:text-slate-600">—</span>
-        
+
         <!-- 结束时间 -->
         <div class="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2">
           <span class="text-xs text-slate-400">到</span>
-          <input 
-            type="time" 
+          <input
+            type="time"
             value={endTimeDisplay}
             on:change={(e) => {
               const [h, m] = e.target.value.split(':').map(Number);
@@ -176,16 +172,4 @@
       </button>
     </div>
   </div>
-</div>
-
-<!-- 模型配置 -->
-<div class="card p-6 mb-6">
-  <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-1">🤖 AI 模型</h3>
-  <p class="text-xs text-slate-400 dark:text-slate-500 mb-5">配置 AI 模型用于生成工作日报</p>
-  
-  <SettingsAI 
-    bind:config 
-    {providers} 
-    on:change={() => dispatch('change', config)} 
-  />
 </div>

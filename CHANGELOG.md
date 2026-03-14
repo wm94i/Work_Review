@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-03-15
+
+### 新增
+- 视频画中画（PiP）小窗使用时间统计
+  - 通过 macOS `CGWindowListCopyWindowInfo` 检测浮动窗口（layer > 0）
+  - 自动识别腾讯视频、爱奇艺、QuickTime Player 等应用的 PiP 小窗
+  - 浮动窗口时长独立累计，不与前台应用重复计时
+  - 自动排除系统进程（Dock、控制中心等）和过小窗口
+  - 受隐私过滤规则约束，支持脱敏和跳过
+- 自定义背景图片功能
+  - 设置页新增「外观」标签，支持上传自定义背景图
+  - 可调节背景不透明度和模糊程度，实时预览
+  - 图片自动压缩（最大 1920px 宽，JPEG 格式）
+- 设置页新增「AI 模型」独立标签页
+
+### 修复
+- 修复 README 中 Releases 下载链接指向错误仓库名的问题
+
+### 优化
+- 设置页 UI 精简：标题栏和按钮样式统一，去除多余渐变和阴影
+- 概览页、时间线、报告等页面样式微调
+- 侧边栏布局和交互优化
+- 关于页按钮和技术栈标签样式统一
+
 ## [1.0.5] - 2026-03-13
 
 ### 新增

@@ -142,23 +142,15 @@
   });
 </script>
 
-<div class="p-6 animate-fadeIn">
-  <div class="max-w-4xl">
+<div class="p-5 animate-fadeIn">
   <!-- 页面标题 -->
-  <div class="flex items-center justify-between mb-8">
+  <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/50 dark:to-orange-900/50 flex items-center justify-center">
-          <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-        </div>
-        今日日报
-      </h2>
-      <p class="text-sm text-slate-400 dark:text-slate-500 mt-1 ml-10">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">今日日报</h2>
+      <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         {formatFullDate()}
         {#if config}
-          <span class="ml-2 px-2 py-0.5 rounded-full text-xs font-medium 
+          <span class="ml-1.5 px-2 py-0.5 rounded-full text-xs font-medium
             {config.ai_mode === 'summary' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'}">
             {getAiModeName(config.ai_mode)}
           </span>
@@ -172,7 +164,7 @@
     </div>
     {#if report}
       <button
-        class="px-4 py-2 text-sm font-medium rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all flex items-center gap-2"
+        class="px-4 py-2 text-sm font-medium rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition-all flex items-center gap-2"
         on:click={() => generateReport(true)}
         disabled={generating}
       >
@@ -191,7 +183,7 @@
 
   <!-- 日报内容 -->
   {#if loading}
-    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 text-center">
+    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 text-center">
       <div class="animate-spin rounded-full h-8 w-8 border-2 border-indigo-500 border-t-transparent mx-auto"></div>
       <p class="text-slate-400 text-sm mt-4">加载中...</p>
     </div>
@@ -229,7 +221,7 @@
         </button>
       </div>
     {/if}
-    <div class="p-6 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50">
+    <div class="p-6 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60">
       <div class="text-xs text-slate-400 mb-4 flex items-center gap-2">
         <div class="w-1.5 h-1.5 rounded-full {isYesterdayReport ? 'bg-amber-500' : 'bg-emerald-500'}"></div>
         {isYesterdayReport ? '昨日日报 - ' : ''}生成于 {new Date(report.created_at * 1000).toLocaleString('zh-CN')}
@@ -239,16 +231,16 @@
       </div>
     </div>
   {:else}
-    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 text-center">
-      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 flex items-center justify-center mx-auto mb-5">
+    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 text-center">
+      <div class="w-16 h-16 rounded-2xl bg-amber-50 dark:bg-amber-950/30 flex items-center justify-center mx-auto mb-5">
         <span class="text-3xl">📝</span>
       </div>
       <h3 class="text-base font-semibold text-slate-800 dark:text-white mb-2">今日暂无日报</h3>
-      <p class="text-slate-400 text-sm mb-6">
+      <p class="text-slate-400 text-sm mb-5">
         AI 将根据今日活动记录生成工作总结
       </p>
       <button
-        class="px-6 py-3 text-sm font-medium rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/25 hover:shadow-xl hover:-translate-y-0.5 transition-all"
+        class="px-6 py-3 text-sm font-medium rounded-xl bg-amber-500 hover:bg-amber-600 text-white transition-all"
         on:click={() => generateReport(false)}
         disabled={generating}
       >
@@ -263,7 +255,6 @@
       </button>
     </div>
   {/if}
-  </div>
 </div>
 
 <style>

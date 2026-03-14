@@ -20,7 +20,7 @@ mod screen_lock;
 mod screenshot;
 mod storage;
 
-use chrono::Local;
+use chrono;
 use config::AppConfig;
 use database::Database;
 use once_cell::sync::OnceCell;
@@ -45,6 +45,7 @@ pub struct AppState {
     pub screenshot_service: ScreenshotService,
     pub storage_manager: StorageManager,
     pub data_dir: PathBuf,
+    pub config_path: PathBuf,
     pub is_recording: bool,
     pub is_paused: bool,
 }
@@ -72,10 +73,7 @@ fn get_data_dir() -> PathBuf {
 /// 后台截屏任务
 /// 使用 Arc<Mutex<AppState>> 而非 tauri::State，因为 State 无法在 async move 块中手动构造
 async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::WebviewWindow) {
-    // ===== 精确时长计算变量 =====
-    // 初始化变量
-    let mut last_app_change_time = std::time::Instant::now();
-    let mut _last_app_change_wall_time = Local::now(); // 记录墙钟时间用于跨天检测（预留）
+    // ===== 状态变量 =====
     let mut last_app_name: Option<String> = None;
     let mut _last_app_window_title: Option<String> = None;
     let mut _last_browser_url: Option<String> = None; // 预留
@@ -99,10 +97,8 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         // 检测屏幕锁定状态，锁屏时不统计时长
         if screen_lock_monitor.is_locked() {
             log::info!("🔒 屏幕已锁定，暂停活动统计");
-            // 重置计时基准，避免解锁后累加锁屏期间的时长
-            last_app_change_time = std::time::Instant::now();
-            _last_app_change_wall_time = Local::now();
             last_app_name = None; // 重置应用状态，解锁后视为新开始
+            last_capture_time = std::time::Instant::now(); // 重置截图计时，避免解锁后累加锁屏时长
             tokio::time::sleep(Duration::from_secs(5)).await;
             continue;
         }
@@ -149,33 +145,21 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
             Some(last) => last != &active_window.app_name,
             None => true,
         };
+        // 保存切换前的应用名，用于时长归属修正
+        let previous_app_name = if app_changed { last_app_name.clone() } else { None };
 
         // 计算距离上次截图的时间
         let elapsed_since_capture = last_capture_time.elapsed();
         let elapsed_secs = elapsed_since_capture.as_secs();
 
-        // ===== 精确时长计算 =====
-        // duration 由每次截图/合并时的 POLL_INTERVAL_SECS 增量统一计时
-        // 这里只做应用切换检测和状态重置，不再通过 add_duration 重复累加
-        let _actual_duration = if app_changed && last_app_name.is_some() {
-            let now_wall_time = Local::now();
-            let duration = last_app_change_time.elapsed().as_secs() as i64;
-
+        // ===== 应用切换日志 =====
+        if app_changed && last_app_name.is_some() {
             log::info!(
-                "📊 应用切换: {} → {} (持续 {}秒)",
+                "📊 应用切换: {} → {}",
                 last_app_name.as_deref().unwrap_or("无"),
                 &active_window.app_name,
-                duration
             );
-
-            // 重置计时基准
-            last_app_change_time = std::time::Instant::now();
-            _last_app_change_wall_time = now_wall_time;
-            duration
-        } else {
-            // 未切换，使用轮询间隔作为增量
-            POLL_INTERVAL_SECS as i64
-        };
+        }
 
         // ===== 空闲检测第一阶段：键鼠活动检查 =====
         let input_idle = idle_detector.is_input_idle();
@@ -206,6 +190,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         } else {
             false
         };
+
+        // 保存 app_name 副本供浮动窗口检测使用（在 move 之前）
+        let frontmost_app_name = active_window.app_name.clone();
 
         // 更新上一个应用的信息（无论是否截图）
         last_app_name = Some(active_window.app_name.clone());
@@ -248,7 +235,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                     active_window.app_name,
                     active_window.window_title
                 );
-                let category = monitor::categorize_app(&active_window.app_name);
+                let category = monitor::categorize_app(&active_window.app_name, &active_window.window_title);
                 let activity = database::Activity {
                     id: None,
                     timestamp: chrono::Local::now().timestamp(),
@@ -272,8 +259,35 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                 }
             }
             PrivacyAction::Record => {
-                let category = monitor::categorize_app(&active_window.app_name);
+                let category = monitor::categorize_app(&active_window.app_name, &active_window.window_title);
                 let current_timestamp = chrono::Local::now().timestamp();
+
+                // ===== 应用切换时长归属修正 =====
+                // 切换应用时，上次截图到现在的时长应归属于上一个应用
+                // 新应用从 0 开始计时，避免"偷"到上个应用的使用时长
+                let adjusted_duration = if app_changed {
+                    if let Some(ref prev_app) = previous_app_name {
+                        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                        if let Ok(Some(prev_activity)) = state_guard.database.get_latest_activity_by_app(prev_app) {
+                            if let Some(prev_id) = prev_activity.id {
+                                let _ = state_guard.database.merge_activity(
+                                    prev_id,
+                                    duration_to_record,
+                                    None,
+                                    &prev_activity.screenshot_path,
+                                    current_timestamp,
+                                );
+                                log::debug!(
+                                    "⏱️ 时长回补: {} +{}s (切换到 {})",
+                                    prev_app, duration_to_record, active_window.app_name
+                                );
+                            }
+                        }
+                    }
+                    0i64
+                } else {
+                    duration_to_record
+                };
 
                 // 先检查是否有可合并的记录（在截屏之前判断，避免不必要的截图保存）
                 let latest_activity = {
@@ -303,8 +317,14 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
 
                 // "Unknown" 进程名不做合并：无法区分是哪个进程，强制新建
                 // 防止所有识别失败的进程时长累积到同一条记录导致统计失真
-                let is_merge = latest_activity.is_some()
-                    && active_window.app_name != "Unknown";
+                // 时间间隔超过 10 分钟也不合并：上午/下午用同一个 app 属于不同工作段
+                const MERGE_GAP_SECS: i64 = 600;
+                let is_merge = if let Some(ref latest) = latest_activity {
+                    active_window.app_name != "Unknown"
+                        && (current_timestamp - latest.timestamp) <= MERGE_GAP_SECS
+                } else {
+                    false
+                };
 
                 if is_merge {
                     // === 合并路径：不保存截图，只做 OCR ===
@@ -338,7 +358,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                         log::debug!("空闲确认: 跳过本次时长记录");
                         0
                     } else {
-                        duration_to_record
+                        adjusted_duration
                     };
 
                     // 合并记录（不更新 screenshot_path，保留活动创建时的原始截图）
@@ -468,7 +488,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                                 log::debug!("空闲确认: 新活动时长设为 0");
                                 0
                             } else {
-                                duration_to_record
+                                adjusted_duration
                             };
 
                             let (relative_path, data_dir_clone) = {
@@ -565,6 +585,93 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         // 发送事件到前端
         if let Some(activity) = result {
             let _ = window.emit("screenshot-taken", &activity);
+        }
+
+        // ===== 浮动窗口（PiP 画中画）检测 =====
+        // 检测 layer > 0 的浮动窗口（如视频小窗），为它们记录使用时长
+        // 浮动窗口不截图（截图已由主活动管理），仅记录时长
+        let overlay_windows = monitor::get_overlay_windows(&frontmost_app_name);
+        for ow in &overlay_windows {
+            // 隐私检查
+            let ow_privacy = {
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                state_guard.privacy_filter.check_privacy(&ow.app_name, &ow.window_title)
+            };
+
+            if ow_privacy == privacy::PrivacyAction::Skip {
+                log::debug!("浮动窗口跳过(隐私): {}", ow.app_name);
+                continue;
+            }
+
+            let ow_category = monitor::categorize_app(&ow.app_name, &ow.window_title);
+            let current_ts = chrono::Local::now().timestamp();
+            let ow_duration = POLL_INTERVAL_SECS as i64;
+
+            // 查找该应用的最近活动记录，尝试合并
+            let latest = {
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                state_guard.database.get_latest_activity_by_app(&ow.app_name).ok().flatten()
+            };
+
+            const OW_MERGE_GAP_SECS: i64 = 600;
+            let can_merge = if let Some(ref act) = latest {
+                ow.app_name != "Unknown"
+                    && (current_ts - act.timestamp) <= OW_MERGE_GAP_SECS
+            } else {
+                false
+            };
+
+            if can_merge {
+                let act = latest.unwrap();
+                if let Some(act_id) = act.id {
+                    let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                    match state_guard.database.merge_activity(
+                        act_id,
+                        ow_duration,
+                        None,
+                        &act.screenshot_path,
+                        current_ts,
+                    ) {
+                        Ok(_) => {
+                            log::info!(
+                                "🪟 浮动窗口合并: {} (id={}, +{}s, 总{}s)",
+                                ow.app_name, act_id, ow_duration, act.duration + ow_duration
+                            );
+                        }
+                        Err(e) => log::error!("浮动窗口合并失败: {e}"),
+                    }
+                }
+            } else {
+                // 新建活动记录（无截图）
+                let ow_title = if ow_privacy == privacy::PrivacyAction::Anonymize {
+                    "[内容已脱敏]".to_string()
+                } else {
+                    ow.window_title.clone()
+                };
+
+                let activity = database::Activity {
+                    id: None,
+                    timestamp: current_ts,
+                    app_name: ow.app_name.clone(),
+                    window_title: ow_title,
+                    screenshot_path: String::new(),
+                    ocr_text: None,
+                    category: ow_category,
+                    duration: ow_duration,
+                    browser_url: None,
+                };
+
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                match state_guard.database.insert_activity(&activity) {
+                    Ok(id) => {
+                        log::info!(
+                            "🪟 浮动窗口新建: {} (id={}, {}s)",
+                            ow.app_name, id, ow_duration
+                        );
+                    }
+                    Err(e) => log::error!("浮动窗口记录失败: {e}"),
+                }
+            }
         }
     }
 }
@@ -770,6 +877,7 @@ async fn main() {
         screenshot_service,
         storage_manager,
         data_dir,
+        config_path,
         is_recording: true,
         is_paused: false,
     }));
@@ -971,6 +1079,9 @@ async fn main() {
             commands::get_ocr_install_guide,
             commands::set_dock_visibility,
             commands::get_app_icon,
+            commands::save_background_image,
+            commands::get_background_image,
+            commands::clear_background_image,
             get_platform,
         ])
         .build(tauri::generate_context!())

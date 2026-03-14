@@ -384,23 +384,15 @@
   });
 </script>
 
-<div class="p-6 animate-fadeIn">
-  <div class="max-w-6xl">
+<div class="p-5 animate-fadeIn">
   <!-- 页面标题 -->
-  <div class="flex items-center justify-between mb-8">
+  <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-100 to-blue-100 dark:from-cyan-900/50 dark:to-blue-900/50 flex items-center justify-center">
-          <svg class="w-4 h-4 text-cyan-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </div>
-        时间线
-      </h2>
-      <p class="text-sm text-slate-400 dark:text-slate-500 mt-1 ml-10">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">时间线</h2>
+      <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         活动记录
         {#if isToday}
-          <span class="ml-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20">
+          <span class="ml-1.5 inline-flex items-center gap-1.5">
             <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
             <span class="font-mono text-xs text-emerald-600 dark:text-emerald-400">{currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
           </span>
@@ -411,9 +403,9 @@
       <input
         type="date"
         bind:value={selectedDate}
-        class="px-3 py-2 text-sm rounded-xl bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700 focus:ring-2 focus:ring-indigo-500"
+        class="px-3 py-2 text-sm rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
       />
-      <button class="p-2 rounded-xl bg-white dark:bg-slate-800 ring-1 ring-slate-200 dark:ring-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors" on:click={loadTimeline} title="刷新">
+      <button class="p-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors" on:click={loadTimeline} title="刷新">
         <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
@@ -431,8 +423,8 @@
       <button class="btn btn-primary mt-4" on:click={loadTimeline}>重试</button>
     </div>
   {:else if activities.length === 0}
-    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 text-center">
-      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center mx-auto mb-4">
+    <div class="p-12 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 text-center">
+      <div class="w-14 h-14 rounded-2xl bg-slate-50 dark:bg-slate-700/50 flex items-center justify-center mx-auto mb-4">
         <span class="text-2xl">📝</span>
       </div>
       <p class="text-slate-400 text-sm">该日期暂无活动记录</p>
@@ -501,7 +493,7 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-slate-800 dark:text-white">{activity.app_name}</span>
-                <span class="tag tag-{info.color}">{info.name}</span>
+                <span class="text-[10px] text-slate-400 dark:text-slate-500">{info.name}</span>
               </div>
               <p class="text-sm text-slate-500 dark:text-slate-400 truncate mt-0.5" title={activity.window_title}>
                 {formatWindowTitle(activity.window_title, activity.app_name, activity.browser_url)}
@@ -547,7 +539,6 @@
       {/if}
     </div>
   {/if}
-  </div>
 </div>
 
 <!-- 活动详情弹窗 -->

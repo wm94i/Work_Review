@@ -688,6 +688,212 @@ pub fn get_active_window() -> Result<ActiveWindow> {
     })
 }
 
+/// 获取浮动/overlay 窗口（如 PiP 画中画小窗）
+/// 通过 CGWindowListCopyWindowInfo 枚举屏幕上所有窗口，
+/// 过滤出 layer > 0 的浮动窗口（排除当前前台应用和系统进程）
+#[cfg(target_os = "macos")]
+pub fn get_overlay_windows(frontmost_app: &str) -> Vec<ActiveWindow> {
+    use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::dictionary::CFDictionaryRef;
+    use core_foundation::number::CFNumberRef;
+    use core_foundation::string::CFString;
+    use core_graphics::display::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
+
+    // 系统进程排除列表
+    const SYSTEM_PROCESSES: &[&str] = &[
+        "Window Server",
+        "Dock",
+        "SystemUIServer",
+        "Control Center",
+        "Spotlight",
+        "NotificationCenter",
+        "Finder",
+        "TextInputMenuAgent",
+        "Wallpaper",
+        "WindowManager",
+        "AirPlayUIAgent",
+        "Siri",
+        "loginwindow",
+        "ControlStrip",
+        "CoreServicesUIAgent",
+        "ScreenSaverEngine",
+        "universalAccessAuthWarn",
+    ];
+
+    let mut results: Vec<ActiveWindow> = Vec::new();
+
+    unsafe {
+        let window_list = CGWindowListCopyWindowInfo(
+            kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+            kCGNullWindowID,
+        );
+        if window_list.is_null() {
+            return results;
+        }
+
+        let count = CFArrayGetCount(window_list as _);
+
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(window_list as _, i) as CFDictionaryRef;
+            if dict.is_null() {
+                continue;
+            }
+
+            // 读取 kCGWindowLayer
+            let layer_key = CFString::new("kCGWindowLayer");
+            let mut layer_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                layer_key.as_CFTypeRef() as *const _,
+                &mut layer_ref,
+            ) == 0
+                || layer_ref.is_null()
+            {
+                continue;
+            }
+            let mut layer: i32 = 0;
+            if !core_foundation::number::CFNumberGetValue(
+                layer_ref as CFNumberRef,
+                core_foundation::number::kCFNumberSInt32Type,
+                &mut layer as *mut i32 as *mut _,
+            ) {
+                continue;
+            }
+
+            // 只取浮动窗口 (layer > 0)
+            if layer <= 0 {
+                continue;
+            }
+
+            // 读取 kCGWindowOwnerName
+            let owner_key = CFString::new("kCGWindowOwnerName");
+            let mut owner_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                owner_key.as_CFTypeRef() as *const _,
+                &mut owner_ref,
+            ) == 0
+                || owner_ref.is_null()
+            {
+                continue;
+            }
+            let owner_cfstr =
+                core_foundation::string::CFString::wrap_under_get_rule(owner_ref as _);
+            let owner_name = owner_cfstr.to_string();
+
+            // 排除当前前台应用（避免重复计时）
+            if owner_name == frontmost_app {
+                continue;
+            }
+
+            // 排除系统进程
+            if SYSTEM_PROCESSES
+                .iter()
+                .any(|&sys| owner_name == sys)
+            {
+                continue;
+            }
+
+            // 读取窗口尺寸 kCGWindowBounds
+            let bounds_key = CFString::new("kCGWindowBounds");
+            let mut bounds_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                bounds_key.as_CFTypeRef() as *const _,
+                &mut bounds_ref,
+            ) == 0
+                || bounds_ref.is_null()
+            {
+                continue;
+            }
+            // kCGWindowBounds 是一个 CFDictionary: {Height, Width, X, Y}
+            let bounds_dict = bounds_ref as CFDictionaryRef;
+
+            let width = get_cf_dict_number(bounds_dict, "Width").unwrap_or(0.0);
+            let height = get_cf_dict_number(bounds_dict, "Height").unwrap_or(0.0);
+
+            // 排除小图标/指示器类窗口
+            if width <= 100.0 || height <= 80.0 {
+                continue;
+            }
+
+            // 读取 kCGWindowName（可选）
+            let win_name_key = CFString::new("kCGWindowName");
+            let mut win_name_ref: CFTypeRef = std::ptr::null();
+            let window_title = if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                win_name_key.as_CFTypeRef() as *const _,
+                &mut win_name_ref,
+            ) != 0
+                && !win_name_ref.is_null()
+            {
+                let name_cfstr =
+                    core_foundation::string::CFString::wrap_under_get_rule(win_name_ref as _);
+                name_cfstr.to_string()
+            } else {
+                String::new()
+            };
+
+            log::debug!(
+                "🪟 检测到浮动窗口: {} - {} (layer={}, {}x{})",
+                owner_name, window_title, layer, width as i32, height as i32
+            );
+
+            results.push(ActiveWindow {
+                app_name: owner_name,
+                window_title,
+                browser_url: None,
+            });
+        }
+
+        CFRelease(window_list as _);
+    }
+
+    // 去重：同一应用可能有多个浮动窗口，只保留第一个
+    results.dedup_by(|a, b| a.app_name == b.app_name);
+
+    results
+}
+
+/// 从 CFDictionary 读取一个数值字段
+#[cfg(target_os = "macos")]
+unsafe fn get_cf_dict_number(dict: core_foundation::dictionary::CFDictionaryRef, key: &str) -> Option<f64> {
+    use core_foundation::base::{CFTypeRef, TCFType};
+    use core_foundation::string::CFString;
+
+    let cf_key = CFString::new(key);
+    let mut val_ref: CFTypeRef = std::ptr::null();
+    if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+        dict,
+        cf_key.as_CFTypeRef() as *const _,
+        &mut val_ref,
+    ) == 0
+        || val_ref.is_null()
+    {
+        return None;
+    }
+    let mut value: f64 = 0.0;
+    if core_foundation::number::CFNumberGetValue(
+        val_ref as core_foundation::number::CFNumberRef,
+        core_foundation::number::kCFNumberFloat64Type,
+        &mut value as *mut f64 as *mut _,
+    ) {
+        Some(value)
+    } else {
+        None
+    }
+}
+
+/// 非 macOS 平台：返回空 Vec
+#[cfg(not(target_os = "macos"))]
+pub fn get_overlay_windows(_frontmost_app: &str) -> Vec<ActiveWindow> {
+    Vec::new()
+}
+
 /// 获取所有可见窗口 (macOS)
 /// 当前为预留功能
 #[cfg(target_os = "macos")]
@@ -754,44 +960,74 @@ pub fn get_visible_windows() -> Result<Vec<ActiveWindow>> {
 }
 
 /// 根据应用名自动分类
-pub fn categorize_app(app_name: &str) -> String {
+pub fn categorize_app(app_name: &str, window_title: &str) -> String {
     let app_lower = app_name.to_lowercase();
 
-    // 开发工具
+    // 开发工具（IDE、编辑器、终端、数据库工具、API 工具、容器、版本控制）
     if app_lower.contains("code")
         || app_lower.contains("visual studio")
+        || app_lower.contains("cursor")
         || app_lower.contains("idea")
         || app_lower.contains("pycharm")
         || app_lower.contains("webstorm")
+        || app_lower.contains("goland")
+        || app_lower.contains("clion")
+        || app_lower.contains("rustrover")
+        || app_lower.contains("rider")
+        || app_lower.contains("phpstorm")
+        || app_lower.contains("datagrip")
+        || app_lower.contains("fleet")
         || app_lower.contains("xcode")
         || app_lower.contains("android studio")
+        || app_lower.contains("hbuilder")
         || app_lower.contains("sublime")
         || app_lower.contains("atom")
         || app_lower.contains("vim")
+        || app_lower.contains("neovim")
         || app_lower.contains("emacs")
+        || app_lower.contains("nova")
+        || app_lower.contains("bbedit")
+        || app_lower.contains("coteditor")
+        || app_lower.contains("textmate")
         || app_lower.contains("terminal")
         || app_lower.contains("iterm")
+        || app_lower.contains("warp")
+        || app_lower.contains("alacritty")
+        || app_lower.contains("kitty")
+        || app_lower.contains("wezterm")
+        || app_lower.contains("hyper")
+        || app_lower.contains("windowsterminal")
         || app_lower.contains("cmd")
         || app_lower.contains("powershell")
         || app_lower.contains("git")
+        || app_lower.contains("sourcetree")
+        || app_lower.contains("gitkraken")
+        || app_lower.contains("docker")
+        || app_lower.contains("postman")
+        || app_lower.contains("insomnia")
+        || app_lower.contains("dbeaver")
+        || app_lower.contains("navicat")
+        || app_lower.contains("tableplus")
+        || app_lower.contains("sequel")
+        || app_lower.contains("charles")
+        || app_lower.contains("fiddler")
     {
         return "development".to_string();
     }
 
     // 浏览器（支持市面上所有主流浏览器，包含 Windows 进程名）
     // 注意：短名称用精确匹配或 starts_with，避免误匹配系统进程
-    // 例如 "arc" 会匹配 SearchHost（s-e-a-r-c-h），"cent" 会匹配 recent
     if app_lower.contains("chrome")
         || app_lower.contains("firefox")
         || app_lower.contains("safari")
-        || app_lower.contains("msedge")        // Microsoft Edge (进程名 msedge.exe)
+        || app_lower.contains("msedge")
         || app_lower.contains("opera")
         || app_lower.contains("brave")
-        || app_lower.starts_with("arc")         // Arc 浏览器（避免匹配 searchhost 等）
+        || app_lower.starts_with("arc")
         || app_lower.contains("vivaldi")
         || app_lower.contains("chromium")
         || app_lower.contains("orion")
-        || app_lower.starts_with("zen")         // Zen Browser（避免匹配 citizen 等）
+        || app_lower.starts_with("zen")
         || app_lower.contains("sidekick")
         || app_lower.contains("wavebox")
         || app_lower.contains("maxthon")
@@ -800,20 +1036,18 @@ pub fn categorize_app(app_name: &str) -> String {
         || app_lower.contains("tor browser")
         || app_lower.contains("duckduckgo")
         || app_lower.contains("yandex")
-        || app_lower.starts_with("whale")       // Naver Whale（避免误匹配）
+        || app_lower.starts_with("whale")
         || app_lower.contains("naver")
         || app_lower.contains("uc browser")
-        // Windows 进程名（英文）
-        || app_lower.contains("qqbrowser")       // QQ 浏览器
-        || app_lower.contains("360se")           // 360 安全浏览器
-        || app_lower.contains("360chrome")       // 360 极速浏览器
-        || app_lower.contains("sogouexplorer")   // 搜狗浏览器
-        || app_lower.contains("2345explorer")    // 2345 浏览器
-        || app_lower.contains("liebao")          // 猎豹浏览器
-        || app_lower.contains("theworld")        // 世界之窗
-        || app_lower.contains("centbrowser")     // Cent Browser（精确匹配进程名）
-        || app_lower.contains("iexplore")        // IE 浏览器
-        // 中文显示名（macOS / 窗口标题匹配）
+        || app_lower.contains("qqbrowser")
+        || app_lower.contains("360se")
+        || app_lower.contains("360chrome")
+        || app_lower.contains("sogouexplorer")
+        || app_lower.contains("2345explorer")
+        || app_lower.contains("liebao")
+        || app_lower.contains("theworld")
+        || app_lower.contains("centbrowser")
+        || app_lower.contains("iexplore")
         || app_lower.contains("qq浏览器")
         || app_lower.contains("360浏览器")
         || app_lower.contains("搜狗浏览器")
@@ -828,6 +1062,8 @@ pub fn categorize_app(app_name: &str) -> String {
         || app_lower.contains("discord")
         || app_lower.contains("wechat")
         || app_lower.contains("微信")
+        || app_lower.contains("wecom")
+        || app_lower.contains("企业微信")
         || (app_lower.contains("qq") && !app_lower.contains("qqbrowser"))
         || app_lower.contains("telegram")
         || app_lower.contains("skype")
@@ -848,9 +1084,15 @@ pub fn categorize_app(app_name: &str) -> String {
         || app_lower.contains("keynote")
         || app_lower.contains("notion")
         || app_lower.contains("obsidian")
+        || app_lower.contains("logseq")
         || app_lower.contains("evernote")
         || app_lower.contains("onenote")
         || app_lower.contains("wps")
+        || app_lower.contains("typora")
+        || app_lower.contains("bear")
+        || app_lower.contains("ulysses")
+        || app_lower.contains("xmind")
+        || app_lower.contains("mindnode")
     {
         return "office".to_string();
     }
@@ -862,6 +1104,10 @@ pub fn categorize_app(app_name: &str) -> String {
         || app_lower.contains("illustrator")
         || app_lower.contains("xd")
         || app_lower.contains("canva")
+        || app_lower.contains("pixelmator")
+        || app_lower.contains("affinity")
+        || app_lower.contains("lightroom")
+        || app_lower.contains("indesign")
     {
         return "design".to_string();
     }
@@ -874,8 +1120,30 @@ pub fn categorize_app(app_name: &str) -> String {
         || app_lower.contains("bilibili")
         || app_lower.contains("game")
         || app_lower.contains("steam")
+        || app_lower.contains("网易云")
+        || app_lower.contains("qqmusic")
+        || app_lower.contains("爱奇艺")
     {
         return "entertainment".to_string();
+    }
+
+    // 窗口标题兜底：app_name 无法识别时，用窗口标题中的 IDE/工具关键词做最后一轮匹配
+    // 典型场景：Windows 上 JetBrains IDE 进程名可能是 java.exe / idea64.exe 截断后不匹配
+    if !window_title.is_empty() {
+        let title_lower = window_title.to_lowercase();
+        if title_lower.contains("intellij")
+            || title_lower.contains("pycharm")
+            || title_lower.contains("webstorm")
+            || title_lower.contains("goland")
+            || title_lower.contains("clion")
+            || title_lower.contains("datagrip")
+            || title_lower.contains("rustrover")
+            || title_lower.contains("visual studio")
+            || title_lower.contains("vs code")
+            || title_lower.contains("cursor")
+        {
+            return "development".to_string();
+        }
     }
 
     "other".to_string()

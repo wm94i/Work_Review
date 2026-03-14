@@ -61,14 +61,14 @@
 
 <div class="flex-1 flex flex-col overflow-hidden">
   <!-- Logo 区域 -->
-  <div class="px-4 pt-4 pb-3">
+  <div class="px-5 pt-5 pb-4">
     <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-lg overflow-hidden shadow shrink-0">
+      <div class="w-10 h-10 rounded-xl overflow-hidden shadow-md shrink-0 ring-1 ring-slate-200/50 dark:ring-slate-700/50">
         <img src="/icons/256x256.png" alt="Work Review" class="w-full h-full object-cover" />
       </div>
       <div class="min-w-0">
-        <h1 class="text-sm font-semibold text-slate-800 dark:text-white leading-tight">Work Review</h1>
-        <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">记录 · 分析 · 证明</p>
+        <h1 class="text-base font-bold text-slate-800 dark:text-white leading-tight tracking-tight">Work Review</h1>
+        <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 tracking-wide">记录 · 分析 · 证明</p>
       </div>
     </div>
   </div>
@@ -107,13 +107,17 @@
       {#each navItems as item}
         <li>
           <a href={item.path} use:link
-            class="group flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-150
-              {activeStates[item.path] 
-                ? 'bg-slate-200/80 dark:bg-slate-700/80 text-slate-900 dark:text-white font-medium' 
+            class="group relative flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-150
+              {activeStates[item.path]
+                ? 'bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 font-medium'
                 : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60'}">
-            
+
+            {#if activeStates[item.path]}
+              <div class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full bg-indigo-500"></div>
+            {/if}
+
             <!-- SVG 图标 -->
-            <div class="w-5 h-5 flex items-center justify-center {activeStates[item.path] ? 'text-slate-700 dark:text-slate-200' : 'text-slate-400 group-hover:text-slate-500 dark:group-hover:text-slate-300'}">
+            <div class="w-5 h-5 flex items-center justify-center {activeStates[item.path] ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-500 dark:group-hover:text-slate-300'}">
               {#if item.icon === 'home'}
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
@@ -137,13 +141,8 @@
                 </svg>
               {/if}
             </div>
-            
+
             <span class="text-sm">{item.label}</span>
-            
-            <!-- 选中指示器 -->
-            {#if activeStates[item.path]}
-              <div class="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-            {/if}
           </a>
         </li>
       {/each}

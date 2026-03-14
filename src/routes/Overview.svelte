@@ -122,42 +122,32 @@
   });
 </script>
 
-<div class="p-6 animate-fadeIn">
-  <div class="max-w-6xl">
+<div class="p-5 animate-fadeIn">
   <!-- 页面标题 -->
-  <div class="flex items-center justify-between mb-8">
+  <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-100 to-purple-100 dark:from-indigo-900/50 dark:to-purple-900/50 flex items-center justify-center">
-          <svg class="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-        </div>
-        今日概览
-      </h2>
-      <p class="text-sm text-slate-400 dark:text-slate-500 mt-1 ml-10">
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">今日概览</h2>
+      <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
-        <span class="ml-2 font-mono text-xs">{currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+        <span class="ml-1.5 font-mono text-xs">{currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
       </p>
     </div>
-    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-900/20">
+    <div class="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
       <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-      <span class="text-xs font-medium text-emerald-600 dark:text-emerald-400">实时</span>
+      实时
     </div>
   </div>
 
   <!-- 统计卡片：始终渲染，内部切换骨架/真实数据 -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
     {#if loading || !stats}
       {#each [1,2,3,4] as _}
-        <div class="p-5 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 animate-pulse">
-          <div class="flex items-center gap-4">
-            <div class="w-11 h-11 rounded-xl bg-slate-200 dark:bg-slate-700 shrink-0"></div>
-            <div class="flex-1 min-w-0">
-              <div class="h-2.5 bg-slate-200 dark:bg-slate-700 rounded w-3/4 mb-2"></div>
-              <div class="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
-            </div>
+        <div class="p-4 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 animate-pulse">
+          <div class="flex items-center justify-between mb-2">
+            <div class="h-3 bg-slate-200 dark:bg-slate-700 rounded w-20"></div>
+            <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700"></div>
           </div>
+          <div class="h-6 bg-slate-200 dark:bg-slate-700 rounded w-1/2"></div>
         </div>
       {/each}
     {:else}
@@ -176,13 +166,8 @@
   {/if}
 
   <!-- 网站访问：始终渲染，加载中显示骨架，无数据显示占位文字 -->
-  <div class="p-5 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 mb-6">
-    <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-4 flex items-center gap-2">
-      <div class="w-6 h-6 rounded-lg bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/50 dark:to-emerald-900/50 flex items-center justify-center">
-        <span class="text-green-600 dark:text-green-400 text-xs">🌐</span>
-      </div>
-      网站访问
-    </h3>
+  <div class="p-5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 mb-5">
+    <h3 class="text-base font-semibold text-slate-700 dark:text-slate-200 mb-4">网站访问</h3>
     {#if loading || !stats}
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
         {#each [1,2] as _}
@@ -197,9 +182,9 @@
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {#each stats.browser_usage as browser}
           <button
-            class="group text-left p-4 rounded-xl border border-slate-200 dark:border-slate-700
-                   bg-gradient-to-br from-white to-slate-50 dark:from-slate-800 dark:to-slate-900
-                   hover:border-primary-300 dark:hover:border-primary-700 hover:shadow-lg
+            class="group text-left p-4 rounded-xl border border-slate-100 dark:border-slate-700
+                   bg-white dark:bg-slate-800/60
+                   hover:border-slate-200 dark:hover:border-slate-600 hover:shadow-sm
                    transition-all duration-200"
             on:click={() => selectedBrowser = browser}
           >
@@ -230,8 +215,8 @@
   </div>
 
   <!-- 应用使用：始终渲染 -->
-  <div class="p-5 rounded-2xl bg-white dark:bg-slate-800/80 ring-1 ring-slate-200/50 dark:ring-slate-700/50 mb-6">
-    <h3 class="text-lg font-semibold text-slate-800 dark:text-white mb-4">应用使用</h3>
+  <div class="p-5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 mb-5">
+    <h3 class="text-base font-semibold text-slate-700 dark:text-slate-200 mb-4">应用使用</h3>
     {#if loading || !stats}
       <div class="animate-pulse">
         {#each [1,2,3,4] as _}
@@ -248,9 +233,7 @@
       <p class="text-slate-500 dark:text-slate-400 text-center py-8">暂无数据</p>
     {/if}
   </div>
-  </div>
 </div>
-
 
 <!-- 浏览器详情弹窗 -->
 {#if selectedBrowser}

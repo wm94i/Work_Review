@@ -362,6 +362,15 @@ pub struct AppConfig {
     /// 隐藏系统标题栏装饰
     #[serde(default)]
     pub hide_decorations: bool,
+    /// 背景图片文件名（存储在 data 目录下）
+    #[serde(default)]
+    pub background_image: Option<String>,
+    /// 背景图片不透明度 (0.01 - 0.60)
+    #[serde(default = "default_bg_opacity")]
+    pub background_opacity: f32,
+    /// 背景图片模糊程度 (0 = 清晰, 1 = 轻微, 2 = 中等)
+    #[serde(default = "default_bg_blur")]
+    pub background_blur: u8,
 }
 
 fn default_work_start() -> u8 {
@@ -369,6 +378,12 @@ fn default_work_start() -> u8 {
 }
 fn default_work_end() -> u8 {
     18
+}
+fn default_bg_opacity() -> f32 {
+    0.25
+}
+fn default_bg_blur() -> u8 {
+    1
 }
 
 impl Default for AppConfig {
@@ -392,6 +407,9 @@ impl Default for AppConfig {
             openai_model: "gpt-4o-mini".to_string(),
             hide_dock_icon: false,
             hide_decorations: false,
+            background_image: None,
+            background_opacity: 0.25,
+            background_blur: 1,
         }
     }
 }
@@ -449,6 +467,11 @@ impl AppConfig {
         if !self.ollama_host.is_empty() && self.text_model.endpoint.is_empty() {
             self.text_model.endpoint = self.ollama_host.clone();
             self.vision_model.endpoint = self.ollama_host.clone();
+        }
+
+        // 迁移旧版背景不透明度（0.05 太低，用户看不到背景）
+        if self.background_opacity <= 0.05 && self.background_image.is_some() {
+            self.background_opacity = 0.25;
         }
     }
 

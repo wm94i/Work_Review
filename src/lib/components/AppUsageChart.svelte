@@ -55,10 +55,10 @@
       <!-- 应用名 -->
       <span class="w-24 text-xs text-slate-600 dark:text-slate-300 truncate flex-shrink-0">{app.app_name}</span>
       <!-- 进度条 -->
-      <div class="flex-1 h-5 bg-slate-100 dark:bg-slate-700/50 rounded-md overflow-hidden">
+      <div class="flex-1 h-5 bg-slate-100 dark:bg-slate-700/50 rounded-full overflow-hidden">
         <div
-          class="h-full rounded-md transition-all duration-500"
-          style="width: {Math.max((app.duration / maxDuration) * 100, 2)}%; background-color: {colors[i % colors.length]}"
+          class="h-full rounded-full transition-all duration-500"
+          style="width: {Math.max((app.duration / maxDuration) * 100, 2)}%; background-color: {colors[i % colors.length]}; opacity: 0.8"
         ></div>
       </div>
       <!-- 时长 -->

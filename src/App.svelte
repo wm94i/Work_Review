@@ -72,6 +72,9 @@
   let isRecording = true;
   let isPaused = false;
   let platform = '';
+  let backgroundImage = null;
+  let backgroundOpacity = 0.25;
+  let backgroundBlur = 1;
 
   function detectSystemTheme() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -91,13 +94,41 @@
   async function handleThemeChange(event) {
     const newTheme = event.detail;
     applyTheme(newTheme);
-    
+
     try {
       const config = await invoke('get_config');
       config.theme = newTheme;
       await invoke('save_config', { config });
     } catch (e) {
       console.error('保存主题配置失败:', e);
+    }
+  }
+
+  async function loadBackground() {
+    try {
+      const config = await invoke('get_config');
+      backgroundOpacity = config.background_opacity ?? 0.25;
+      backgroundBlur = config.background_blur ?? 1;
+      if (config.background_image) {
+        const b64 = await invoke('get_background_image');
+        if (b64) {
+          backgroundImage = `data:image/jpeg;base64,${b64}`;
+        }
+      } else {
+        backgroundImage = null;
+      }
+    } catch (e) {
+      console.warn('加载背景图失败:', e);
+    }
+  }
+
+  // 实时响应设置页的背景参数变更（不需要保存即可生效）
+  function handleBackgroundChanged(e) {
+    const d = e.detail;
+    if (d) {
+      if (d.image !== undefined) backgroundImage = d.image;
+      if (d.opacity !== undefined) backgroundOpacity = d.opacity;
+      if (d.blur !== undefined) backgroundBlur = d.blur;
     }
   }
 
@@ -121,6 +152,9 @@
       config = { work_end_hour: 18 };
     }
 
+    // 加载背景图
+    loadBackground();
+
     try {
       const [recording, paused] = await invoke('get_recording_state');
       isRecording = recording;
@@ -132,7 +166,11 @@
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       if (theme === 'system') applyTheme('system');
     });
-    
+
+    // 监听背景图更新事件（来自设置页，实时预览）
+    const handleBgChange = (e) => handleBackgroundChanged(e);
+    window.addEventListener('background-changed', handleBgChange);
+
     // 启动预加载
     preloadApp();
 
@@ -182,12 +220,29 @@
     return () => {
       unlisten();
       clearInterval(autoReportTimer);
+      window.removeEventListener('background-changed', handleBgChange);
     };
   });
 </script>
 
 <div class="flex h-screen bg-slate-50 dark:bg-slate-900 overflow-hidden relative">
-  <!-- 
+  <!-- 背景图层：图片全强度 + 半透明遮罩控制显隐 -->
+  {#if backgroundImage}
+    <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <!-- 图片（全强度，不用 opacity 避免色彩发白） -->
+      <div
+        class="absolute inset-[-20px] bg-cover bg-center bg-no-repeat"
+        style="background-image: url({backgroundImage}); filter: blur({backgroundBlur === 0 ? 0 : backgroundBlur === 1 ? 8 : 16}px);"
+      ></div>
+      <!-- 半透明遮罩：遮罩越透明 = 背景图越明显 -->
+      <div
+        class="absolute inset-0 bg-slate-50 dark:bg-slate-900 transition-opacity duration-300"
+        style="opacity: {Math.max(0, 1 - backgroundOpacity)};"
+      ></div>
+    </div>
+  {/if}
+
+  <!--
     全局顶部拖拽层 (Invisible Drag Layer)
     1. 覆盖在所有内容之上 (z-50)
     2. 负责处理窗口拖动 (-webkit-app-region: drag)
@@ -238,14 +293,14 @@
   </div>
 
   <!-- 左侧边栏 -->
-  <div class="w-56 bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-700/50 flex flex-col"
+  <div class="w-56 bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-700/50 flex flex-col z-10"
        class:pt-7={platform === 'macos'}
        class:pt-2={platform !== 'macos'}>
     <Sidebar {isRecording} {isPaused} {theme} on:themeChange={handleThemeChange} />
   </div>
 
   <!-- 右侧主内容区域 -->
-  <div class="flex-1 flex flex-col overflow-hidden"
+  <div class="flex-1 flex flex-col overflow-hidden z-10"
        class:pt-8={platform !== 'macos'}
        class:pt-2={platform === 'macos'}>
     <main class="flex-1 overflow-auto">

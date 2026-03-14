@@ -791,7 +791,7 @@ pub async fn take_screenshot(state: State<'_, Arc<Mutex<AppState>>>) -> Result<A
         // 执行截屏
         let result = state.screenshot_service.capture()?;
         let relative_path = state.screenshot_service.get_relative_path(&result.path);
-        let category = crate::monitor::categorize_app(&active_window.app_name);
+        let category = crate::monitor::categorize_app(&active_window.app_name, &active_window.window_title);
 
         (
             result,
@@ -1606,4 +1606,95 @@ if ($app -and $app.Path) {{
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 async fn get_app_icon_impl(_app_name: &str) -> Result<String, AppError> {
     Ok(String::new())
+}
+
+/// 保存背景图片（接收 base64 编码的图片数据）
+#[tauri::command]
+pub async fn save_background_image(
+    data: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let (data_dir, config_path) = {
+        let s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        (s.data_dir.clone(), s.config_path.clone())
+    };
+
+    // 解码 base64
+    let image_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        &data,
+    )
+    .map_err(|e| AppError::Unknown(format!("base64 解码失败: {e}")))?;
+
+    // 保存为 JPEG（压缩体积）
+    let img = image::load_from_memory(&image_bytes)
+        .map_err(|e| AppError::Unknown(format!("图片解析失败: {e}")))?;
+
+    // 限制最大尺寸为 1920px 宽
+    let img = if img.width() > 1920 {
+        img.resize(1920, 1920, image::imageops::FilterType::Lanczos3)
+    } else {
+        img
+    };
+
+    let bg_path = data_dir.join("background.jpg");
+    img.save_with_format(&bg_path, image::ImageFormat::Jpeg)
+        .map_err(|e| AppError::Unknown(format!("保存背景图失败: {e}")))?;
+
+    // 更新配置
+    let mut s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    s.config.background_image = Some("background.jpg".to_string());
+    s.config.save(&config_path)?;
+
+    Ok(())
+}
+
+/// 获取背景图片（返回 base64）
+#[tauri::command]
+pub async fn get_background_image(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Option<String>, AppError> {
+    let (data_dir, bg_filename) = {
+        let s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        (s.data_dir.clone(), s.config.background_image.clone())
+    };
+
+    let filename = match bg_filename {
+        Some(f) if !f.is_empty() => f,
+        _ => return Ok(None),
+    };
+
+    let bg_path = data_dir.join(&filename);
+    if !bg_path.exists() {
+        return Ok(None);
+    }
+
+    let bytes = std::fs::read(&bg_path)
+        .map_err(|e| AppError::Unknown(format!("读取背景图失败: {e}")))?;
+    let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
+    Ok(Some(b64))
+}
+
+/// 清除背景图片
+#[tauri::command]
+pub async fn clear_background_image(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let (data_dir, config_path) = {
+        let s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        (s.data_dir.clone(), s.config_path.clone())
+    };
+
+    // 删除文件
+    let bg_path = data_dir.join("background.jpg");
+    if bg_path.exists() {
+        let _ = std::fs::remove_file(&bg_path);
+    }
+
+    // 更新配置
+    let mut s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    s.config.background_image = None;
+    s.config.save(&config_path)?;
+
+    Ok(())
 }
