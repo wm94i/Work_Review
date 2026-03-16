@@ -288,6 +288,7 @@ fn normalize_browser_title(title: &str) -> String {
 fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     use uiautomation::types::ControlType;
     use uiautomation::types::Handle;
+    use uiautomation::patterns::UIValuePattern;
     use uiautomation::UIAutomation;
 
     let automation = UIAutomation::new().ok()?;
@@ -304,8 +305,8 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     let edits = matcher.find_all().ok()?;
 
     for edit in &edits {
-        // uiautomation 0.24.4 移除了 UIElement::get_value()，改为通过 ValuePattern 获取
-        if let Ok(pattern) = edit.get_value_pattern() {
+        // 0.24 移除了 get_value_pattern() 便捷方法，改用泛型 get_pattern 并指定 UIValuePattern
+        if let Ok(pattern) = edit.get_pattern::<UIValuePattern>() {
             let value: String = match pattern.get_value() {
                 Ok(v) => v.trim().to_string(),
                 Err(_) => continue,
