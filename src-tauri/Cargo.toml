@@ -57,6 +57,7 @@ tauri-plugin-fs = "2"
 [target.'cfg(windows)'.dependencies]
 windows-capture = "1.5"
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi", "tlhelp32", "psapi", "handleapi", "winnt", "winbase", "sysinfoapi", "wingdi", "libloaderapi"] }
+uiautomation = "0.24"
 
 # 平台特定依赖 - macOS
 [target.'cfg(target_os = "macos")'.dependencies]

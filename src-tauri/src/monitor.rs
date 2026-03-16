@@ -120,7 +120,7 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         };
 
         // 尝试获取浏览器 URL (Windows)
-        let browser_url = get_browser_url_windows(&app_name, &window_title);
+        let browser_url = get_browser_url_windows(&app_name, &window_title, hwnd as isize);
 
         Ok(ActiveWindow {
             app_name,
@@ -169,182 +169,192 @@ fn get_process_name_by_image(pid: u32) -> Option<String> {
     }
 }
 
-/// 从窗口标题提取浏览器 URL (Windows)
-/// 大多数浏览器会在标题栏显示页面标题，部分会包含 URL
-/// 使用缓存避免频繁启动 PowerShell 进程（UI Automation 操作较重）
+/// 从窗口获取浏览器 URL (Windows)
+/// 使用原生 UI Automation COM 接口（通过 uiautomation crate），不再 spawn PowerShell 进程
+/// 多条目缓存避免重复查询，标题归一化提高缓存命中率
 #[cfg(target_os = "windows")]
-fn get_browser_url_windows(app_name: &str, window_title: &str) -> Option<String> {
-    use std::os::windows::process::CommandExt;
+fn get_browser_url_windows(app_name: &str, window_title: &str, hwnd: isize) -> Option<String> {
+    use std::collections::HashMap;
     use std::sync::Mutex;
     use std::time::Instant;
 
-    // 缓存结构：(app_name, window_title, cached_url, fetch_time)
-    static URL_CACHE: std::sync::LazyLock<Mutex<(String, String, Option<String>, Instant)>> =
-        std::sync::LazyLock::new(|| Mutex::new((String::new(), String::new(), None, Instant::now())));
+    struct UrlCacheEntry {
+        url: Option<String>,
+        fetch_time: Instant,
+    }
+
+    // 多条目缓存：key = "app_name|normalized_title"，最多 32 条
+    static URL_CACHE: std::sync::LazyLock<Mutex<HashMap<String, UrlCacheEntry>>> =
+        std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
     const CACHE_TTL_SECS: u64 = 30;
+    const CACHE_MAX_ENTRIES: usize = 32;
 
-    // 检查缓存：同一浏览器+同一标题（标签页未切换）且未过期，直接返回
+    // 标题归一化：去除 (N) / [N] 通知计数前缀，提高缓存命中率
+    let normalized_title = normalize_browser_title(window_title);
+    let cache_key = format!("{}|{}", app_name, normalized_title);
+
+    // 检查缓存
     if let Ok(cache) = URL_CACHE.lock() {
-        if cache.0 == app_name
-            && cache.1 == window_title
-            && cache.3.elapsed().as_secs() < CACHE_TTL_SECS
-        {
-            return cache.2.clone();
+        if let Some(entry) = cache.get(&cache_key) {
+            if entry.fetch_time.elapsed().as_secs() < CACHE_TTL_SECS {
+                return entry.url.clone();
+            }
         }
     }
 
     let app_lower = app_name.to_lowercase();
 
     // 检查是否为浏览器进程（包括国产浏览器）
-    let is_chromium_based = app_lower.contains("chrome")
+    let is_browser = app_lower.contains("chrome")
         || app_lower.contains("msedge")
         || app_lower.contains("brave")
         || app_lower.contains("opera")
         || app_lower.contains("vivaldi")
-        || app_lower.contains("360se")      // 360 安全浏览器
-        || app_lower.contains("360chrome")  // 360 极速浏览器
-        || app_lower.contains("qqbrowser")  // QQ 浏览器
-        || app_lower.contains("sogouexplorer") // 搜狗浏览器
-        || app_lower.contains("2345explorer") // 2345 浏览器
-        || app_lower.contains("liebao")     // 猎豹浏览器
-        || app_lower.contains("maxthon")    // 傲游浏览器
-        || app_lower.contains("theworld")   // 世界之窗
-        || app_lower.contains("cent");      // Cent Browser
+        || app_lower.contains("firefox")
+        || app_lower.contains("360se")
+        || app_lower.contains("360chrome")
+        || app_lower.contains("qqbrowser")
+        || app_lower.contains("sogouexplorer")
+        || app_lower.contains("2345explorer")
+        || app_lower.contains("liebao")
+        || app_lower.contains("maxthon")
+        || app_lower.contains("theworld")
+        || app_lower.contains("cent")
+        || app_lower.contains("iexplore");
 
-    let is_firefox = app_lower.contains("firefox");
-    let is_ie = app_lower.contains("iexplore");
-
-    if !is_chromium_based && !is_firefox && !is_ie {
+    if !is_browser {
         return None;
     }
 
-    // CREATE_NO_WINDOW 标志，防止弹出黑色控制台窗口
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    // 使用原生 UI Automation 获取 URL，catch_unwind 防止 COM 异常导致崩溃
+    let result = std::panic::catch_unwind(|| get_url_via_uiautomation(hwnd))
+        .unwrap_or(None);
 
-    // 尝试使用 PowerShell 和 UI Automation 获取 URL
-    // 这是一个较重的操作，仅在确认是浏览器时执行
-    use std::process::Command;
-
-    // 根据不同浏览器使用不同的方法
-    // Chromium 系浏览器使用相同的 UI 结构
-    let script = if is_chromium_based {
-        // Chrome/Edge/Brave 使用类似的 UI 结构
-        r#"
-        Add-Type -AssemblyName UIAutomationClient
-        Add-Type -AssemblyName UIAutomationTypes
-        
-        $root = [System.Windows.Automation.AutomationElement]::RootElement
-        $condition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Edit
-        )
-        
-        # 获取前台窗口
-        $foreground = [System.Windows.Automation.AutomationElement]::FocusedElement
-        if ($foreground -eq $null) { exit }
-        
-        # 向上查找顶层窗口
-        $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-        $window = $foreground
-        while ($window.Current.ControlType -ne [System.Windows.Automation.ControlType]::Window -and $window -ne $root) {
-            $window = $walker.GetParent($window)
-        }
-        
-        if ($window -eq $null -or $window -eq $root) { exit }
-        
-        # 查找地址栏 (Edit 控件)
-        $edits = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-        foreach ($edit in $edits) {
-            try {
-                $pattern = $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-                $value = $pattern.Current.Value
-                if ($value -match '^https?://' -or $value -match '^[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}') {
-                    Write-Output $value
-                    exit
-                }
-            } catch { }
-        }
-        "#
-    } else if is_firefox {
-        // Firefox 的 UI 结构略有不同
-        r#"
-        Add-Type -AssemblyName UIAutomationClient
-        Add-Type -AssemblyName UIAutomationTypes
-        
-        $root = [System.Windows.Automation.AutomationElement]::RootElement
-        
-        # 查找 Firefox 窗口
-        $ffCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ClassNameProperty, "MozillaWindowClass"
-        )
-        $ffWindow = $root.FindFirst([System.Windows.Automation.TreeScope]::Children, $ffCondition)
-        
-        if ($ffWindow -eq $null) { exit }
-        
-        # 查找 URL 栏
-        $editCondition = New-Object System.Windows.Automation.PropertyCondition(
-            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-            [System.Windows.Automation.ControlType]::Edit
-        )
-        $edits = $ffWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants, $editCondition)
-        
-        foreach ($edit in $edits) {
-            try {
-                $pattern = $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
-                $value = $pattern.Current.Value
-                if ($value -match '^https?://' -or $value -match '^[a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z]{2,}') {
-                    Write-Output $value
-                    exit
-                }
-            } catch { }
-        }
-        "#
-    } else {
-        return None;
-    };
-
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            script,
-        ])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .ok()?;
-
-    let result = if output.status.success() {
-        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !url.is_empty() {
-            // 如果不是完整 URL，添加 https:// 前缀
-            if url.starts_with("http://") || url.starts_with("https://") {
-                Some(url)
-            } else if url.contains('.') && !url.contains(' ') {
-                Some(format!("https://{}", url))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    // UI Automation 失败时，尝试从窗口标题提取域名信息作为兜底
+    let result = result.or_else(|| extract_url_from_title(window_title));
 
     // 更新缓存
     if let Ok(mut cache) = URL_CACHE.lock() {
-        *cache = (
-            app_name.to_string(),
-            window_title.to_string(),
-            result.clone(),
-            Instant::now(),
+        // 容量满时淘汰最旧的条目
+        if cache.len() >= CACHE_MAX_ENTRIES {
+            if let Some(oldest_key) = cache
+                .iter()
+                .min_by_key(|(_, v)| v.fetch_time)
+                .map(|(k, _)| k.clone())
+            {
+                cache.remove(&oldest_key);
+            }
+        }
+        cache.insert(
+            cache_key,
+            UrlCacheEntry {
+                url: result.clone(),
+                fetch_time: Instant::now(),
+            },
         );
     }
 
     result
+}
+
+/// 归一化浏览器窗口标题：去除通知计数前缀 (N) / [N]
+/// 例如 "(3) Gmail - Inbox" → "Gmail - Inbox"
+#[cfg(target_os = "windows")]
+fn normalize_browser_title(title: &str) -> String {
+    let title = title.trim();
+    // 尝试去除 (N) 前缀
+    if let Some(rest) = title.strip_prefix('(') {
+        if let Some(idx) = rest.find(')') {
+            if rest[..idx].chars().all(|c| c.is_ascii_digit()) && idx > 0 {
+                return rest[idx + 1..].trim_start().to_string();
+            }
+        }
+    }
+    // 尝试去除 [N] 前缀
+    if let Some(rest) = title.strip_prefix('[') {
+        if let Some(idx) = rest.find(']') {
+            if rest[..idx].chars().all(|c| c.is_ascii_digit()) && idx > 0 {
+                return rest[idx + 1..].trim_start().to_string();
+            }
+        }
+    }
+    title.to_string()
+}
+
+/// 通过原生 UI Automation COM 接口获取浏览器地址栏 URL
+/// 使用 HWND 精准定位浏览器窗口，查找 Edit 控件并读取 ValuePattern
+#[cfg(target_os = "windows")]
+fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
+    use uiautomation::types::ControlType;
+    use uiautomation::types::Handle;
+    use uiautomation::UIAutomation;
+
+    let automation = UIAutomation::new().ok()?;
+    let window_element = automation.element_from_handle(Handle(hwnd)).ok()?;
+
+    // 使用 UIMatcher 查找浏览器窗口中的 Edit 控件（地址栏）
+    let matcher = automation
+        .create_matcher()
+        .from(window_element)
+        .control_type(ControlType::Edit)
+        .timeout(1000);
+
+    let edits = matcher.find_all().ok()?;
+
+    for edit in &edits {
+        if let Ok(value) = edit.get_value() {
+            let value = value.trim().to_string();
+            if value.is_empty() {
+                continue;
+            }
+            // 完整 URL
+            if value.starts_with("http://") || value.starts_with("https://") {
+                return Some(value);
+            }
+            // Chromium 系浏览器地址栏常省略协议前缀
+            if value.contains('.')
+                && !value.contains(' ')
+                && value.len() > 3
+                && !value.starts_with('.')
+            {
+                return Some(format!("https://{}", value));
+            }
+        }
+    }
+
+    None
+}
+
+/// 从窗口标题尝试提取 URL 或域名（UI Automation 失败时的兜底方案）
+#[cfg(target_os = "windows")]
+fn extract_url_from_title(window_title: &str) -> Option<String> {
+    let title = window_title.trim();
+    if title.is_empty() {
+        return None;
+    }
+
+    // 标题本身就是 URL
+    if title.starts_with("http://") || title.starts_with("https://") {
+        return Some(title.split_whitespace().next()?.to_string());
+    }
+
+    // 尝试从 "Page Title - domain.com - Browser" 格式中提取域名
+    for part in title.rsplit(" - ") {
+        let part = part.trim().to_lowercase();
+        if part.contains('.')
+            && !part.contains(' ')
+            && part.len() > 3
+            && part.len() < 100
+            && part
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return Some(format!("https://{}", part));
+        }
+    }
+
+    None
 }
 
 /// 获取当前活动窗口信息 (macOS)

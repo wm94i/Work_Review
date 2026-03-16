@@ -675,6 +675,8 @@ impl Database {
         date: &str,
         work_start_hour: u8,
         work_end_hour: u8,
+        work_start_minute: u8,
+        work_end_minute: u8,
     ) -> Result<DailyStats> {
         let conn = self.conn.lock().map_err(|e| {
             AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
@@ -690,8 +692,10 @@ impl Database {
         // 计算工作时间范围的时间戳（clamp 到合法小时范围）
         let ws = (work_start_hour as u32).min(23);
         let we = (work_end_hour as u32).min(23);
-        let work_start_ts = safe_local_timestamp(date_parsed.and_hms_opt(ws, 0, 0).unwrap());
-        let work_end_ts = safe_local_timestamp(date_parsed.and_hms_opt(we, 0, 0).unwrap());
+        let wsm = (work_start_minute as u32).min(59);
+        let wem = (work_end_minute as u32).min(59);
+        let work_start_ts = safe_local_timestamp(date_parsed.and_hms_opt(ws, wsm, 0).unwrap());
+        let work_end_ts = safe_local_timestamp(date_parsed.and_hms_opt(we, wem, 0).unwrap());
 
         // 获取总时长和截图数
         let (total_duration, screenshot_count): (i64, i64) = conn.query_row(
@@ -911,7 +915,7 @@ impl Database {
 
     /// 获取指定日期的统计数据（使用默认工作时间 9:00-18:00）
     pub fn get_daily_stats(&self, date: &str) -> Result<DailyStats> {
-        self.get_daily_stats_with_work_time(date, 9, 18)
+        self.get_daily_stats_with_work_time(date, 9, 18, 0, 0)
     }
 
     /// 获取指定日期的时间线 (支持分页)

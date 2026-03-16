@@ -344,6 +344,12 @@ pub struct AppConfig {
     /// 上班结束时间（0-23）
     #[serde(default = "default_work_end")]
     pub work_end_hour: u8,
+    /// 上班开始分钟（0-59）
+    #[serde(default)]
+    pub work_start_minute: u8,
+    /// 上班结束分钟（0-59）
+    #[serde(default)]
+    pub work_end_minute: u8,
 
     // 兼容旧版配置
     #[serde(default)]
@@ -399,6 +405,8 @@ impl Default for AppConfig {
             theme: "system".to_string(),
             work_start_hour: 9,
             work_end_hour: 18,
+            work_start_minute: 0,
+            work_end_minute: 0,
             // 旧版兼容字段
             ai_provider: AiProviderConfig::default(),
             ollama_host: "http://localhost:11434".to_string(),

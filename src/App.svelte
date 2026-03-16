@@ -179,13 +179,15 @@
     const autoReportTimer = setInterval(async () => {
       const now = new Date();
       const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
       const today = getLocalDate();
-      
+
       // 检查是否达到工作结束时间
       const workEndHour = config?.work_end_hour ?? 18;
-      
-      // 条件：当前小时等于工作结束时间，且今天未自动生成过
-      if (currentHour === workEndHour && lastAutoGenDate !== today) {
+      const workEndMinute = config?.work_end_minute ?? 0;
+
+      // 条件：当前小时等于工作结束时间，当前分钟 >= 结束分钟，且今天未自动生成过
+      if (currentHour === workEndHour && currentMinute >= workEndMinute && lastAutoGenDate !== today) {
         try {
           // 检查今日是否已有日报
           const existingReport = await invoke('get_saved_report', { date: today });

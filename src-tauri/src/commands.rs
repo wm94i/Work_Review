@@ -28,6 +28,8 @@ pub async fn get_today_stats(
         &today,
         state.config.work_start_hour,
         state.config.work_end_hour,
+        state.config.work_start_minute,
+        state.config.work_end_minute,
     )?;
 
     // 过滤掉被隐私规则设置为 Ignored 的应用
@@ -91,6 +93,8 @@ pub async fn get_daily_stats(
         &date,
         state.config.work_start_hour,
         state.config.work_end_hour,
+        state.config.work_start_minute,
+        state.config.work_end_minute,
     )
 }
 
@@ -1089,7 +1093,9 @@ pub async fn is_work_time(state: State<'_, Arc<Mutex<AppState>>>) -> Result<bool
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     Ok(crate::screen_lock::ScreenLockMonitor::is_work_time(
         state.config.work_start_hour,
+        state.config.work_start_minute,
         state.config.work_end_hour,
+        state.config.work_end_minute,
     ))
 }
 

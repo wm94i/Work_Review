@@ -29,9 +29,9 @@
 
   // 解析工作时间
   $: startHour = config.work_start_hour ?? 9;
-  $: startMinute = config.work_start_minutes ? config.work_start_minutes % 60 : 0;
+  $: startMinute = config.work_start_minute ?? 0;
   $: endHour = config.work_end_hour ?? 18;
-  $: endMinute = config.work_end_minutes ? config.work_end_minutes % 60 : 0;
+  $: endMinute = config.work_end_minute ?? 0;
 
   // 格式化为 HH:MM
   $: startTimeDisplay = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`;
@@ -50,13 +50,13 @@
 
   function updateStart(h, m) {
     config.work_start_hour = h;
-    config.work_start_minutes = h * 60 + m;
+    config.work_start_minute = m;
     dispatch('change', config);
   }
 
   function updateEnd(h, m) {
     config.work_end_hour = h;
-    config.work_end_minutes = h * 60 + m;
+    config.work_end_minute = m;
     dispatch('change', config);
   }
 

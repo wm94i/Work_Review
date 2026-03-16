@@ -181,16 +181,18 @@ impl ScreenLockMonitor {
     }
 
     /// 检查是否在工作时间内
-    pub fn is_work_time(start_hour: u8, end_hour: u8) -> bool {
+    pub fn is_work_time(start_hour: u8, start_minute: u8, end_hour: u8, end_minute: u8) -> bool {
         let now = chrono::Local::now();
-        let hour = now.hour() as u8;
+        let current = (now.hour() as u8, now.minute() as u8);
+        let start = (start_hour, start_minute);
+        let end = (end_hour, end_minute);
 
-        if start_hour <= end_hour {
-            // 正常时间范围，如 9-18
-            hour >= start_hour && hour < end_hour
+        if start <= end {
+            // 正常时间范围，如 9:00-18:00 或 8:30-17:30
+            current >= start && current < end
         } else {
-            // 跨午夜，如 22-6
-            hour >= start_hour || hour < end_hour
+            // 跨午夜，如 22:00-6:00
+            current >= start || current < end
         }
     }
 }
