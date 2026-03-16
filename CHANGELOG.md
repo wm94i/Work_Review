@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-03-16
+
+### 修复
+- 修复 macOS 睡眠/Power Nap 唤醒时产生幽灵活动记录的问题
+  - 新增 CGSessionCopyCurrentDictionary 锁屏检测（系统级 API，最可靠）
+  - 解决合盖睡眠期间 WPS Office 等应用被错误记录使用时长
+- 修复时段摘要中卡片显示"1分钟"但文本显示"0分钟"的矛盾
+  - 后端摘要文本时长改为向上取整，与前端 Math.round() 对齐
+
 ## [1.0.6] - 2026-03-15
 
 ### 新增
