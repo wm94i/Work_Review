@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-03-16
+
+### 优化
+- Windows 浏览器 URL 获取改用原生 UIAutomation COM 接口，替代 PowerShell 脚本调用，提升性能与稳定性
+- 新增从窗口标题提取 URL 的兜底方案
+
+### 改进
+- 工作时间设置支持分钟级精度（如 8:30-17:30）
+- 自动日报生成触发逻辑适配分钟级工作结束时间
+
 ## [1.0.7] - 2026-03-16
 
 ### 修复
