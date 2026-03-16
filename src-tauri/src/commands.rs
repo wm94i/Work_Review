@@ -1204,6 +1204,7 @@ pub async fn get_ocr_install_guide() -> Result<serde_json::Value, AppError> {
 
 /// 设置 Dock 图标可见性 (仅 macOS)
 #[tauri::command]
+#[allow(unused_variables)]
 pub fn set_dock_visibility(visible: bool) -> Result<(), AppError> {
     #[cfg(target_os = "macos")]
     {

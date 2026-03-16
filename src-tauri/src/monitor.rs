@@ -291,7 +291,8 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     use uiautomation::UIAutomation;
 
     let automation = UIAutomation::new().ok()?;
-    let window_element = automation.element_from_handle(Handle(hwnd)).ok()?;
+    // Handle 内部字段在 0.24.4 变为私有，改用 From trait 构造
+    let window_element = automation.element_from_handle(Handle::from(hwnd)).ok()?;
 
     // 使用 UIMatcher 查找浏览器窗口中的 Edit 控件（地址栏）
     let matcher = automation
@@ -303,8 +304,12 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
     let edits = matcher.find_all().ok()?;
 
     for edit in &edits {
-        if let Ok(value) = edit.get_value() {
-            let value = value.trim().to_string();
+        // uiautomation 0.24.4 移除了 UIElement::get_value()，改为通过 ValuePattern 获取
+        if let Ok(pattern) = edit.get_value_pattern() {
+            let value: String = match pattern.get_value() {
+                Ok(v) => v.trim().to_string(),
+                Err(_) => continue,
+            };
             if value.is_empty() {
                 continue;
             }
@@ -826,8 +831,9 @@ pub fn get_overlay_windows(frontmost_app: &str) -> Vec<ActiveWindow> {
             let width = get_cf_dict_number(bounds_dict, "Width").unwrap_or(0.0);
             let height = get_cf_dict_number(bounds_dict, "Height").unwrap_or(0.0);
 
-            // 排除小图标/指示器类窗口
-            if width <= 100.0 || height <= 80.0 {
+            // 排除小图标/指示器/工具栏类窗口
+            // WPS Office 等应用常驻的悬浮工具栏尺寸较小，需要提高阈值
+            if width <= 200.0 || height <= 150.0 {
                 continue;
             }
 
@@ -847,6 +853,11 @@ pub fn get_overlay_windows(frontmost_app: &str) -> Vec<ActiveWindow> {
             } else {
                 String::new()
             };
+
+            // 无窗口标题的浮动窗口大概率是工具栏/面板/悬浮球，用更严格的阈值
+            if window_title.is_empty() && (width <= 400.0 || height <= 300.0) {
+                continue;
+            }
 
             log::debug!(
                 "🪟 检测到浮动窗口: {} - {} (layer={}, {}x{})",

@@ -7,13 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.8] - 2026-03-16
 
-### 优化
-- Windows 浏览器 URL 获取改用原生 UIAutomation COM 接口，替代 PowerShell 脚本调用，提升性能与稳定性
-- 新增从窗口标题提取 URL 的兜底方案
+### 修复
+- 修复 Windows 编译错误：适配 uiautomation 0.24.4 API 变更
+- 修复 macOS 上 Dock 等系统进程被统计使用时长的问题
+- 修复 WPS Office 等应用悬浮工具栏导致后台时长虚高的问题
 
-### 改进
+### 优化
+- Windows 浏览器 URL 获取改用原生 UIAutomation COM 接口
 - 工作时间设置支持分钟级精度（如 8:30-17:30）
-- 自动日报生成触发逻辑适配分钟级工作结束时间
+- 浮动窗口检测阈值优化，减少误统计
 
 ## [1.0.7] - 2026-03-16
 

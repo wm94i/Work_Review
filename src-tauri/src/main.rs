@@ -140,6 +140,24 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
             continue;
         }
 
+        // macOS 系统进程在用户切换应用、点击 Dock 时会短暂成为前台应用
+        // 跳过这些进程避免它们偷走其他应用的使用时长
+        // 不更新 last_app_name，时长会在下一个正常轮询中通过 elapsed_secs 自然回收
+        {
+            let app_lower = active_window.app_name.to_lowercase();
+            let is_system_transient = matches!(
+                app_lower.as_str(),
+                "dock" | "systemuiserver" | "control center"
+                | "spotlight" | "notificationcenter" | "loginwindow"
+                | "screencaptureui" | "universalaccessauthwarn"
+                | "windowmanager" | "wallpaper"
+            );
+            if is_system_transient {
+                log::debug!("跳过系统瞬态进程: {}", active_window.app_name);
+                continue;
+            }
+        }
+
         // ===== 检测应用切换 =====
         let app_changed = match &last_app_name {
             Some(last) => last != &active_window.app_name,
