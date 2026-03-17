@@ -61,7 +61,7 @@
 
 <div class="flex-1 flex flex-col overflow-hidden">
   <!-- Logo 区域 -->
-  <div class="px-5 pt-5 pb-4">
+  <div class="px-5 pt-2 pb-4">
     <div class="flex items-center gap-3">
       <div class="w-10 h-10 rounded-xl overflow-hidden shadow-md shrink-0 ring-1 ring-slate-200/50 dark:ring-slate-700/50">
         <img src="/icons/256x256.png" alt="Work Review" class="w-full h-full object-cover" />

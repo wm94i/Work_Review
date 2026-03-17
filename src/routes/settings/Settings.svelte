@@ -8,6 +8,7 @@
   import SettingsAppearance from './components/SettingsAppearance.svelte';
   import SettingsPrivacy from './components/SettingsPrivacy.svelte';
   import SettingsStorage from './components/SettingsStorage.svelte';
+  import { aiStore } from '../../lib/stores/ai.js';
 
   let config = null;
   let loading = true;
@@ -84,10 +85,28 @@
     saving = true;
     error = null;
     success = false;
+
+    // 验证 AI 设置
+    let aiState;
+    const unsub = aiStore.subscribe(s => aiState = s);
+    unsub();
+
+    let fallbackWarning = false;
+    if (config.ai_mode === 'summary' && (!aiState || !aiState.textConnectionVerified)) {
+      config.ai_mode = 'local';
+      fallbackWarning = true;
+    }
+
     try {
       await invoke('save_config', { config });
       success = true;
       cache.setConfig(config);
+      
+      if (fallbackWarning) {
+        // 使用弹窗提醒用户自动降级，避免覆盖整个面板的加载错误状态
+        setTimeout(() => alert("AI 模型尚未通过测试，日报生成模式已自动重置并保存为 [基础模板]"), 100);
+      }
+      
       setTimeout(() => success = false, 3000);
     } catch (e) {
       error = e.toString();

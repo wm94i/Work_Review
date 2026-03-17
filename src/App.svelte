@@ -296,15 +296,14 @@
 
   <!-- 左侧边栏 -->
   <div class="w-56 bg-white/80 dark:bg-slate-900/90 backdrop-blur-xl border-r border-slate-200/50 dark:border-slate-700/50 flex flex-col z-10"
-       class:pt-7={platform === 'macos'}
+       class:pt-5={platform === 'macos'}
        class:pt-2={platform !== 'macos'}>
     <Sidebar {isRecording} {isPaused} {theme} on:themeChange={handleThemeChange} />
   </div>
 
   <!-- 右侧主内容区域 -->
   <div class="flex-1 flex flex-col overflow-hidden z-10"
-       class:pt-8={platform !== 'macos'}
-       class:pt-2={platform === 'macos'}>
+       class:pt-8={platform !== 'macos'}>
     <main class="flex-1 overflow-auto">
       <Router {routes} />
     </main>

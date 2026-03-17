@@ -5,12 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2026-03-17
+
+### 修复
+- 修复主界面右侧标题区域高度与左侧边栏 Logo 区域视觉不对齐问题
+  - 去除 App 全局和右侧内容区顶部因为适配红绿灯预留的过多高度（`pt`）间距，使整个界面布局极简化、视觉更紧凑对齐
+- 修复 `AI 增强` 模式下的错误配置保存问题
+  - 若 AI 模型未通过联通性测试强行提交时，系统将阻拦保存并将生成模式自动重置为 `基础模板`
+
+### 优化
+- 优化 AI 日报设置在 `基础模板` 下的展示逻辑，彻底隐藏无关的模型配置表单，进一步保持界面清爽
+
+## [1.0.9] - 2026-03-17
+
+### 修复
+- 修复因高频截屏引发的严重 Frontend / Backend 内存泄漏（导致进程占用达 9GB+ 的问题）
+  - 前端 `Timeline.svelte` 给 Base64 图片数据的缓存（原图/缩略图/App图标）强制增加 LRU 数量上限，并在日期切换时主动销毁旧缓存实例
+  - 后端对异步并行的 OCR 切片解析任务加入 `Semaphore(2)` 保护防堆积限流
+- 修复 AI 增强配置中可能因为连接前置守卫未挂载导致的按钮点击无效问题
+
 ## [1.0.8] - 2026-03-16
 
 ### 修复
 - 修复 Windows 编译错误：适配 uiautomation 0.24.4 API 变更
 - 修复 macOS 上 Dock 等系统进程被统计使用时长的问题
-- 修复 WPS Office 等应用悬浮工具栏导致后台时长虚高的问题
+- 修复应用悬浮工具栏导致后台时长虚高的问题
 
 ### 优化
 - Windows 浏览器 URL 获取改用原生 UIAutomation COM 接口

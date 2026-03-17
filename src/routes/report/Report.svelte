@@ -142,11 +142,11 @@
   });
 </script>
 
-<div class="p-5 animate-fadeIn">
+<div class="px-5 pt-1 pb-5 animate-fadeIn">
   <!-- 页面标题 -->
   <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">今日日报</h2>
+      <h2 class="text-xl font-bold text-slate-800 dark:text-white">今日日报</h2>
       <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         {formatFullDate()}
         {#if config}

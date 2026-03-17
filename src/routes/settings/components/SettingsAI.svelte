@@ -101,6 +101,11 @@
   }
 
   function handleChange() {
+    // 阻止派发含有未验证文本模型的配置
+    if (config.ai_mode === 'summary' && !isTextModelConfigured) {
+      aiStore.setError("必须先完成 API 连接测试才能保存");
+      return; 
+    }
     dispatch('change', config);
   }
 
@@ -156,7 +161,17 @@
       {@const isSelected = config.ai_mode === mode.value}
       <button 
         type="button"
-        on:click={() => { config.ai_mode = mode.value; handleChange(); }}
+        on:click={() => { 
+          // 仅当切换需要文字模型且未配置或测试失败时，给提示并阻止向父组件发送 change（避免自动保存未验证状态）
+          if (mode.requiresText && !isTextModelConfigured) {
+            config.ai_mode = mode.value; // 允许 UI 切换展开面板
+            aiStore.setError("请先配置并测试 AI 模型连接");
+            // 不触发 handleChange()，防止父组件认为配置已完备
+          } else {
+            config.ai_mode = mode.value; 
+            handleChange(); 
+          }
+        }}
         class="flex-1 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150
                {isSelected
                  ? 'bg-primary-500 text-white shadow-sm' 
@@ -169,8 +184,8 @@
   </div>
 </div>
 
-<!-- AI 模型配置：仅在 AI 增强模式或已有配置时展开 -->
-{#if isAiMode || hasTextModelConfig}
+<!-- AI 模型配置：仅在 AI 增强模式或云端模式下展开 -->
+{#if isAiMode}
   <div class="space-y-3 pt-3 border-t border-slate-200 dark:border-slate-700">
     <!-- 提供商 + 测试按钮 -->
     <div class="flex items-end gap-2">

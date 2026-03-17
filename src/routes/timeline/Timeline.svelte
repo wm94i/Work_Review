@@ -419,11 +419,11 @@
   });
 </script>
 
-<div class="p-5 animate-fadeIn">
+<div class="px-5 pt-1 pb-5 animate-fadeIn">
   <!-- 页面标题 -->
   <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">时间线</h2>
+      <h2 class="text-xl font-bold text-slate-800 dark:text-white">时间线</h2>
       <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         活动记录
         {#if isToday}
@@ -579,6 +579,8 @@
 <!-- 活动详情弹窗 -->
 {#if selectedActivity}
   {@const info = categoryInfo[selectedActivity.category] || categoryInfo.other}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
     role="button"
@@ -673,13 +675,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  .tag-blue { @apply bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300; }
-  .tag-green { @apply bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300; }
-  .tag-yellow { @apply bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300; }
-  .tag-purple { @apply bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300; }
-  .tag-pink { @apply bg-pink-100 dark:bg-pink-900/50 text-pink-700 dark:text-pink-300; }
-  .tag-red { @apply bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300; }
-  .tag-gray { @apply bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300; }
-</style>

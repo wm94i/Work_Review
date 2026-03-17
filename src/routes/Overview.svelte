@@ -122,11 +122,11 @@
   });
 </script>
 
-<div class="p-5 animate-fadeIn">
+<div class="px-5 pt-1 pb-5 animate-fadeIn">
   <!-- 页面标题 -->
   <div class="flex items-center justify-between mb-5">
     <div>
-      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">今日概览</h2>
+      <h2 class="text-xl font-bold text-slate-800 dark:text-white">今日概览</h2>
       <p class="text-sm text-slate-400 dark:text-slate-500 mt-0.5">
         {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
         <span class="ml-1.5 font-mono text-xs">{currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -237,6 +237,8 @@
 
 <!-- 浏览器详情弹窗 -->
 {#if selectedBrowser}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
   role="button"
