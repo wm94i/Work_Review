@@ -89,13 +89,16 @@
     <div>
       <div class="flex items-center justify-between mb-1.5">
         <label for="retention-days" class="text-sm font-medium text-slate-700 dark:text-slate-300">数据保留天数</label>
-        <span class="text-sm font-mono text-primary-600 dark:text-primary-400">{config.retention_days}天</span>
+        <span class="text-sm font-mono text-primary-600 dark:text-primary-400">{config.storage.screenshot_retention_days}天</span>
       </div>
       <input
         id="retention-days"
         type="range"
-        bind:value={config.retention_days}
-        on:change={handleChange}
+        bind:value={config.storage.screenshot_retention_days}
+        on:change={() => {
+          config.storage.metadata_retention_days = config.storage.screenshot_retention_days;
+          handleChange();
+        }}
         min="1"
         max="90"
         step="1"

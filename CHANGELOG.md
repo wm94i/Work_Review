@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2026-03-17
+
+### 新增
+- 自动更新支持：
+  - 应用内「关于」页面新增检查更新功能（并带有网络重试和抗挂起机制）
+  - 支持检查并拉取 GitHub Releases 最新版本并展现下载进度提示，支持静默重启覆盖
+
+### 修复
+- 修复「数据保留天数」设置保存不生效的 Bug
+  - 数据存储管理配置现在可以正确同时同步更新 截图保留天数 及 元数据保留天数
+
 ## [1.0.10] - 2026-03-17
 
 ### 修复

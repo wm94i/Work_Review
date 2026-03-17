@@ -11,7 +11,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Tauri 核心
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2.9", features = ["tray-icon"] }
 tauri-plugin-single-instance = { version = "2" }
 
 # 异步运行时
@@ -52,6 +52,8 @@ image = "0.25.9"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-updater = "2.10.0"
+tauri-plugin-process = "2.3.1"
 
 # 平台特定依赖 - Windows
 [target.'cfg(windows)'.dependencies]

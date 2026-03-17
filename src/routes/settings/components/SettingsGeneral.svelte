@@ -2,6 +2,9 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
+  import { check } from '@tauri-apps/plugin-updater';
+  import { ask, message as showMessage } from '@tauri-apps/plugin-dialog';
+  import { relaunch } from '@tauri-apps/plugin-process';
 
   export let config;
 
@@ -9,6 +12,10 @@
 
   // 开机自启动状态（独立于 config，由系统 API 驱动）
   let autoStartEnabled = false;
+  
+  // 更新状态
+  let isCheckingUpdate = false;
+  let updateStatus = '';
 
   onMount(async () => {
     try {
@@ -91,6 +98,7 @@
     }
     dispatch('change', config);
   }
+
 </script>
 
 <!-- 基本设置 -->
@@ -171,5 +179,6 @@
         <span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 {config.hide_dock_icon ? 'translate-x-5' : 'translate-x-0'}"></span>
       </button>
     </div>
+
   </div>
 </div>

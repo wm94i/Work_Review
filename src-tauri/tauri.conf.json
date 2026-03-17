@@ -51,7 +51,14 @@
   "version": "1.0.11",
 
   "identifier": "com.workreview.app",
-  "plugins": {},
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM5MDVEQkE5OTQ0N0M2QkUKUldTK3hrZVVxZHNGeWQ0V1c2VEhEU3JmY1E4WWdrL1FwOTExa2dZYU9IZ1lvOWQ1aU44ZlFkYXoK",
+      "endpoints": [
+        "https://github.com/wm94i/Work_Review/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "app": {
     "windows": [
       {
