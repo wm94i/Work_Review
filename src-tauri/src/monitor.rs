@@ -290,7 +290,8 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
 
     let mut best_match: Option<(i32, String)> = None;
 
-    let mut inspect_control = |control: uiautomation::UIElement| {
+    let inspect_control = |control: uiautomation::UIElement,
+                           best_match: &mut Option<(i32, String)>| {
         let control_type = match control.get_control_type() {
             Ok(t) => t,
             Err(_) => return,
@@ -322,7 +323,7 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
                 candidates.push(value);
             }
         }
-        candidates.push(name);
+        candidates.push(name.clone());
 
         for raw in candidates {
             let Some(url) = normalize_possible_url(&raw) else {
@@ -350,7 +351,7 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
                     .map(|(best_score, _)| score > *best_score)
                     .unwrap_or(true)
             {
-                best_match = Some((score, url));
+                *best_match = Some((score, url));
             }
         }
     };
@@ -363,7 +364,7 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
         .timeout(800)
         .find_first()
     {
-        inspect_control(edit);
+        inspect_control(edit, &mut best_match);
     }
     if let Some((score, url)) = &best_match {
         if *score >= 85 {
@@ -377,7 +378,7 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
         .timeout(800)
         .find_first()
     {
-        inspect_control(doc);
+        inspect_control(doc, &mut best_match);
     }
 
     best_match.map(|(_, url)| url)

@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复 `latest.json` 缺失导致的自动更新失败：当原生更新源不可用时，Windows 现会自动回退到 GitHub Release 检查并下载安装包，继续保持一键更新覆盖旧版本。
 - 修复时间线与浏览器使用时长统计的口径偏差：浏览器 URL 识别与合并逻辑改为准确优先，避免标签页和窗口之间串时长。
 - 修复历史日报入口感知弱的问题：日报页补充今天、昨天和日期切换入口，历史日期切换后会立即加载对应日报内容。
+- 修复 Windows 打包编译错误：调整 UI Automation 地址栏候选值的借用与匹配逻辑，消除 `monitor.rs` 中的所有权冲突。
 
 ### 优化
 - 清理测试构建产物与临时输出，避免无关文件进入版本库。
