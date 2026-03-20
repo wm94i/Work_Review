@@ -262,9 +262,11 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
         // ===== 应用切换日志 =====
         if app_changed && last_app_name.is_some() {
             log::info!(
-                "📊 应用切换: {} → {}",
+                "📊 应用切换: {} [{}] → {} [{}]",
                 last_app_name.as_deref().unwrap_or("无"),
+                previous_window_title.as_deref().unwrap_or(""),
                 &active_window.app_name,
+                &active_window.window_title,
             );
         }
 
@@ -1280,6 +1282,8 @@ async fn main() {
             commands::get_storage_stats,
             commands::get_hourly_summaries,
             commands::get_activity,
+            commands::search_memory,
+            commands::ask_memory,
             commands::clear_old_activities,
             commands::get_ocr_log,
             commands::is_screen_locked,

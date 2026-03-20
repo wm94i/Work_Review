@@ -339,24 +339,55 @@ if __name__ == "__main__":
     #[cfg(target_os = "windows")]
     fn extract_with_windows_ocr(&self, image_path: &Path) -> Result<Option<OcrResult>> {
         use std::os::windows::process::CommandExt;
+        use std::path::PathBuf;
+        use std::time::{SystemTime, UNIX_EPOCH};
 
         // CREATE_NO_WINDOW 标志，防止弹出黑色控制台窗口
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let powershell_path =
+            PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
 
         let script = format!(
             r#"
+$utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8
+$OutputEncoding = $utf8
+
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 
 $imagePath = '{}'
+
+function Write-OcrJson($payload) {{
+    Write-Output (ConvertTo-Json $payload -Depth 5 -Compress)
+}}
+
+function Write-OcrError([string]$message) {{
+    Write-OcrJson @{{
+        text = ""
+        error = ([string]$message)
+        boxes = @()
+        confidence = 0
+    }}
+}}
 
 # 加载 Windows.Media.Ocr
 [Windows.Media.Ocr.OcrEngine, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
 [Windows.Graphics.Imaging.BitmapDecoder, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
 [Windows.Storage.StorageFile, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
+[Windows.Globalization.Language, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
+[Windows.System.UserProfile.GlobalizationPreferences, Windows.Foundation.UniversalApiContract, ContentType = WindowsRuntime] | Out-Null
 
 # 辅助函数：等待异步操作完成
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {{ $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' }})[0]
+if ($null -eq $asTaskGeneric) {{
+    Write-OcrError "System.WindowsRuntimeSystemExtensions.AsTask 未找到"
+    exit
+}}
+
 Function Await($WinRtTask, $ResultType) {{
+    if ($null -eq $WinRtTask) {{
+        throw "WinRT 异步任务为空: $ResultType"
+    }}
     $asTask = $asTaskGeneric.MakeGenericMethod($ResultType)
     $netTask = $asTask.Invoke($null, @($WinRtTask))
     $netTask.Wait(-1) | Out-Null
@@ -366,28 +397,56 @@ Function Await($WinRtTask, $ResultType) {{
 try {{
     # 打开图片文件
     $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($imagePath)) ([Windows.Storage.StorageFile])
+    if ($null -eq $file) {{
+        throw "读取截图文件失败: $imagePath"
+    }}
     $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+    if ($null -eq $stream) {{
+        throw "打开截图流失败: $imagePath"
+    }}
     
     # 解码图片
     $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
     $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    if ($null -eq $bitmap) {{
+        throw "解码截图失败: $imagePath"
+    }}
+    $ocrBitmap = [Windows.Graphics.Imaging.SoftwareBitmap]::Convert(
+        $bitmap,
+        [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+        [Windows.Graphics.Imaging.BitmapAlphaMode]::Premultiplied
+    )
+    if ($null -eq $ocrBitmap) {{
+        throw "转换 OCR 位图失败: $imagePath"
+    }}
     
-    # 创建 OCR 引擎 (使用简体中文或默认语言)
+    # 创建 OCR 引擎 (优先用户语言，其次简中/英文)
     $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
     if ($ocrEngine -eq $null) {{
-        $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage('zh-Hans-CN')
-    }}
-    if ($ocrEngine -eq $null) {{
-        $ocrEngine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage('en-US')
+        foreach ($langTag in @('zh-Hans', 'zh-Hans-CN', 'en-US')) {{
+            try {{
+                $language = [Windows.Globalization.Language]::new($langTag)
+                $candidate = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage($language)
+                if ($candidate -ne $null) {{
+                    $ocrEngine = $candidate
+                    break
+                }}
+            }} catch {{
+            }}
+        }}
     }}
     
     if ($ocrEngine -eq $null) {{
-        Write-Output '{{"text": "", "error": "No OCR engine available", "boxes": [], "confidence": 0}}'
+        $profileLanguages = [string]::Join(',', [Windows.System.UserProfile.GlobalizationPreferences]::Languages)
+        Write-OcrError ("No OCR engine available; user profile languages=" + ([string]$profileLanguages))
         exit
     }}
     
     # 执行 OCR
-    $result = Await ($ocrEngine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+    $result = Await ($ocrEngine.RecognizeAsync($ocrBitmap)) ([Windows.Media.Ocr.OcrResult])
+    if ($null -eq $result) {{
+        throw "OCR 结果为空"
+    }}
     
     $allText = @()
     $boxes = @()
@@ -413,37 +472,71 @@ try {{
         confidence = 0.9
     }}
     
-    Write-Output (ConvertTo-Json $output -Depth 3 -Compress)
+    Write-OcrJson $output
     
-    $stream.Dispose()
+    try {{ $stream.Dispose() }} catch {{}}
+    try {{ $bitmap.Dispose() }} catch {{}}
+    try {{ $ocrBitmap.Dispose() }} catch {{}}
 }} catch {{
-    Write-Output ('{{"text": "", "error": "' + $_.Exception.Message.Replace('"', '\"') + '", "boxes": [], "confidence": 0}}')
+    $message = if ($_.Exception -and $_.Exception.Message) {{
+        [string]$_.Exception.Message
+    }} else {{
+        [string]$_
+    }}
+    Write-OcrError $message
 }}
 "#,
             image_path
                 .to_string_lossy()
-                .replace("\\", "\\\\")
                 .replace("'", "''")
         );
 
-        let output = Command::new("powershell")
+        let script_name = format!(
+            "work_review_ocr_{}.ps1",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+        let script_path = std::env::temp_dir().join(script_name);
+
+        // 写入时添加 UTF-8 BOM，确保 Windows PowerShell 正确识别编码
+        let bom: &[u8] = b"\xEF\xBB\xBF";
+        let script_bytes = script.as_bytes();
+        let mut content = Vec::with_capacity(bom.len() + script_bytes.len());
+        content.extend_from_slice(bom);
+        content.extend_from_slice(script_bytes);
+
+        if let Err(e) = std::fs::write(&script_path, &content) {
+            log::warn!("写入 Windows OCR 临时脚本失败: {e}");
+            return Ok(None);
+        }
+
+        let output = Command::new(&powershell_path)
             .args([
                 "-NoProfile",
+                "-Sta",
                 "-ExecutionPolicy",
                 "Bypass",
-                "-Command",
-                &script,
+                "-File",
+                script_path.to_string_lossy().as_ref(),
             ])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
+        let _ = std::fs::remove_file(&script_path);
+
         match output {
             Ok(result) if result.status.success() => {
                 let stdout = String::from_utf8_lossy(&result.stdout);
+                let stderr = String::from_utf8_lossy(&result.stderr);
 
                 if let Ok(ocr_output) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                    if ocr_output.get("error").is_some() {
-                        log::warn!("Windows OCR 错误");
+                    if let Some(error) = ocr_output.get("error").and_then(|v| v.as_str()) {
+                        log::warn!("Windows OCR 错误: {error}");
+                        if !stderr.trim().is_empty() {
+                            log::warn!("Windows OCR stderr: {}", stderr.trim());
+                        }
                         return Ok(None);
                     }
 
@@ -475,10 +568,30 @@ try {{
                         boxes,
                     }))
                 } else {
+                    if !stdout.trim().is_empty() {
+                        log::warn!("Windows OCR 输出无法解析为 JSON: {}", stdout.trim());
+                    }
+                    if !stderr.trim().is_empty() {
+                        log::warn!("Windows OCR stderr: {}", stderr.trim());
+                    }
                     Ok(None)
                 }
             }
-            _ => Ok(None),
+            Ok(result) => {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                log::warn!(
+                    "Windows OCR PowerShell 执行失败: status={:?}, stderr={}, stdout={}",
+                    result.status.code(),
+                    stderr.trim(),
+                    stdout.trim()
+                );
+                Ok(None)
+            }
+            Err(e) => {
+                log::warn!("Windows OCR PowerShell 启动失败: {e}");
+                Ok(None)
+            }
         }
     }
 
