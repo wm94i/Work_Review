@@ -20,6 +20,44 @@ function normalizeName(appName) {
   return typeof appName === 'string' ? appName.trim().toLowerCase() : '';
 }
 
+function buildMonogramIcon(appName) {
+  const normalized = normalizeName(appName);
+  if (!normalized) return null;
+
+  const words = normalized
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/gi, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  let label = '';
+  if (words.length >= 2) {
+    label = `${words[0][0]}${words[1][0]}`;
+  } else if (words.length === 1) {
+    label = words[0].slice(0, words[0].match(/[\u4e00-\u9fa5]/) ? 1 : 2);
+  }
+
+  label = label.toUpperCase();
+  if (!label) return null;
+
+  let hash = 0;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  const hue = Math.abs(hash) % 360;
+  const bg = `hsl(${hue} 70% 94%)`;
+  const fg = `hsl(${hue} 55% 32%)`;
+  const fontSize = label.length > 1 ? 19 : 22;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+      <rect x="4" y="4" width="40" height="40" rx="12" fill="${bg}" />
+      <text x="24" y="29" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="${fontSize}" font-weight="700" fill="${fg}">${label}</text>
+    </svg>`
+  )}`;
+}
+
 export function getFallbackAppIcon(appName) {
   const normalized = normalizeName(appName);
   if (!normalized) return null;
@@ -36,7 +74,7 @@ export function getFallbackAppIcon(appName) {
     return electronSvg;
   }
 
-  return null;
+  return buildMonogramIcon(appName);
 }
 
 export function resolveAppIconSrc(appName, base64) {

@@ -48,6 +48,36 @@ pub fn normalize_display_app_name(app_name: &str) -> String {
         "work-review" | "work_review" | "workreview" | "work review" => {
             "Work Review".to_string()
         }
+        "chrome" | "google chrome" => "Google Chrome".to_string(),
+        "msedge" | "edge" | "microsoft edge" => "Microsoft Edge".to_string(),
+        "brave" | "brave browser" => "Brave Browser".to_string(),
+        "firefox" => "Firefox".to_string(),
+        "safari" => "Safari".to_string(),
+        "opera" => "Opera".to_string(),
+        "vivaldi" => "Vivaldi".to_string(),
+        "chromium" => "Chromium".to_string(),
+        "arc" => "Arc".to_string(),
+        "zen browser" | "zen" => "Zen Browser".to_string(),
+        "qqbrowser" | "qq浏览器" => "QQ Browser".to_string(),
+        "360se" | "360chrome" | "360浏览器" => "360 Browser".to_string(),
+        "sogouexplorer" | "搜狗浏览器" => "Sogou Browser".to_string(),
+        "code" | "vscode" | "visual studio code" | "vs code" => "VS Code".to_string(),
+        "cursor" => "Cursor".to_string(),
+        "wechat" | "weixin" | "微信" => "WeChat".to_string(),
+        "wecom" | "企业微信" => "WeCom".to_string(),
+        "qq" => "QQ".to_string(),
+        "notion" => "Notion".to_string(),
+        "obsidian" => "Obsidian".to_string(),
+        "slack" => "Slack".to_string(),
+        "discord" => "Discord".to_string(),
+        "winword" | "word" => "Microsoft Word".to_string(),
+        "excel" => "Microsoft Excel".to_string(),
+        "powerpnt" | "powerpoint" => "Microsoft PowerPoint".to_string(),
+        "outlook" => "Microsoft Outlook".to_string(),
+        "explorer" => "File Explorer".to_string(),
+        "windowsterminal" | "windows terminal" => "Windows Terminal".to_string(),
+        "powershell" | "pwsh" => "PowerShell".to_string(),
+        "cmd" => "Command Prompt".to_string(),
         _ => trimmed.to_string(),
     }
 }
@@ -373,29 +403,38 @@ fn get_url_via_uiautomation(hwnd: isize) -> Option<String> {
         }
     };
 
-    // 快速路径：只查首个 Edit / Document，命中高置信地址栏则立即返回
-    if let Ok(edit) = automation
+    // 先扫描全部 Edit 控件。
+    // Chrome/Chromium 的地址栏在不同版本和 UI 状态下不一定是第一个 Edit；
+    // 只取 find_first 很容易误拿到页面内搜索框，导致 URL 统计长期为空。
+    if let Ok(edits) = automation
         .create_matcher()
         .from(window_element.clone())
         .control_type(ControlType::Edit)
-        .timeout(800)
-        .find_first()
+        .timeout(300)
+        .find_all()
     {
-        inspect_control(edit, &mut best_match);
+        for edit in edits {
+            inspect_control(edit, &mut best_match);
+        }
     }
     if let Some((score, url)) = &best_match {
         if *score >= 85 {
             return Some(url.clone());
         }
     }
-    if let Ok(doc) = automation
+
+    // 再扫 Document 控件作为补充。
+    // 某些浏览器或特殊页面会把可读 URL 暴露在 Document，而不是地址栏 Edit。
+    if let Ok(docs) = automation
         .create_matcher()
         .from(window_element)
         .control_type(ControlType::Document)
-        .timeout(800)
-        .find_first()
+        .timeout(300)
+        .find_all()
     {
-        inspect_control(doc, &mut best_match);
+        for doc in docs {
+            inspect_control(doc, &mut best_match);
+        }
     }
 
     best_match.map(|(_, url)| url)
@@ -673,7 +712,7 @@ end tell"#,
             (
                 r#"tell application "Safari"
     if (count of windows) > 0 then
-        return URL of current tab of window 1
+        return URL of current tab of front window
     else
         return ""
     end if
@@ -690,7 +729,7 @@ end tell"#,
             (
                 r#"tell application "Microsoft Edge"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -701,7 +740,7 @@ end tell"#,
             (
                 r#"tell application "Arc"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -712,7 +751,7 @@ end tell"#,
             (
                 r#"tell application "Brave Browser"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -723,7 +762,7 @@ end tell"#,
             (
                 r#"tell application "Opera"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -734,7 +773,7 @@ end tell"#,
             (
                 r#"tell application "Vivaldi"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -745,7 +784,7 @@ end tell"#,
             (
                 r#"tell application "Chromium"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -768,7 +807,7 @@ end tell"#,
             (
                 r#"tell application "Zen Browser"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if
@@ -780,7 +819,7 @@ end tell"#,
             (
                 r#"tell application "Sidekick"
     if (count of windows) > 0 then
-        return URL of active tab of window 1
+        return URL of active tab of front window
     else
         return ""
     end if

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.16] - 2026-03-20
+
+### 修复
+- 修复 Windows 浏览器网站访问统计经常出现 `0 站点 / 0 页面` 的问题：浏览器 URL 获取现会扫描更多 UI Automation 候选控件，并在短时间采集失败时复用同窗口最近一次成功识别的 URL，减少 Chrome 等浏览器地址识别丢失导致的统计断裂。
+- 修复浏览器名称不统一导致统计和图标命中不稳定的问题：`Chrome / Google Chrome`、`Edge / msedge` 等常见别名现会统一归一，避免同一浏览器被拆成多条统计记录。
+- 修复 Windows 应用图标大量缺失的问题：图标提取链路现支持更多进程别名、路径名和窗口标题匹配，减少显示名与真实进程名不一致时取不到图标的情况。
+
+### 优化
+- 优化网站访问统计的近似精度：后台轮询间隔由 `5s` 调整为 `3s`，降低页面切换时长统计的基础误差。
+- 优化应用图标回退体验：当前端拿不到原生应用图标时，现会显示稳定的字母徽标，避免 Windows 下大量空白占位。
+
 ## [1.0.15] - 2026-03-20
 
 ### 修复

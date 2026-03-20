@@ -1770,6 +1770,116 @@ async fn get_app_icon_impl(app_name: &str) -> Result<String, AppError> {
 /// 优先提取 256x256 (JUMBO) 图标，降级到 48x48 (EXTRALARGE)，最后回退到 32x32
 /// 带磁盘缓存，避免重复启动 PowerShell
 #[cfg(target_os = "windows")]
+fn windows_icon_process_candidates(app_name: &str) -> Vec<String> {
+    let trimmed = app_name
+        .trim()
+        .trim_end_matches(".exe")
+        .trim_end_matches(".EXE")
+        .trim();
+    let normalized = trimmed.to_lowercase();
+    let compact = normalized
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>();
+
+    let mut candidates = Vec::new();
+    let mut push_candidate = |value: &str| {
+        let candidate = value.trim().to_lowercase();
+        if !candidate.is_empty() && !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    };
+
+    push_candidate(trimmed);
+    push_candidate(&normalized);
+    push_candidate(&compact);
+
+    match compact.as_str() {
+        "chrome" | "googlechrome" => {
+            push_candidate("chrome");
+            push_candidate("google chrome");
+        }
+        "msedge" | "edge" | "microsoftedge" => {
+            push_candidate("msedge");
+            push_candidate("microsoft edge");
+            push_candidate("edge");
+        }
+        "brave" | "bravebrowser" => {
+            push_candidate("brave");
+            push_candidate("brave browser");
+        }
+        "firefox" => push_candidate("firefox"),
+        "safari" => push_candidate("safari"),
+        "opera" => push_candidate("opera"),
+        "vivaldi" => push_candidate("vivaldi"),
+        "chromium" => push_candidate("chromium"),
+        "arc" => push_candidate("arc"),
+        "zen" | "zenbrowser" => {
+            push_candidate("zen");
+            push_candidate("zen browser");
+        }
+        "code" | "vscode" | "visualstudiocode" => {
+            push_candidate("code");
+            push_candidate("vs code");
+            push_candidate("visual studio code");
+        }
+        "cursor" => push_candidate("cursor"),
+        "wechat" | "weixin" => {
+            push_candidate("wechat");
+            push_candidate("weixin");
+        }
+        "wecom" => {
+            push_candidate("wecom");
+            push_candidate("wxwork");
+        }
+        "qq" => push_candidate("qq"),
+        "qqbrowser" => push_candidate("qqbrowser"),
+        "360se" | "360chrome" => {
+            push_candidate("360se");
+            push_candidate("360chrome");
+        }
+        "sogouexplorer" => push_candidate("sogouexplorer"),
+        "explorer" | "fileexplorer" => {
+            push_candidate("explorer");
+            push_candidate("file explorer");
+        }
+        "windowsterminal" => {
+            push_candidate("windowsterminal");
+            push_candidate("windows terminal");
+        }
+        "powershell" | "pwsh" => {
+            push_candidate("powershell");
+            push_candidate("pwsh");
+        }
+        "cmd" | "commandprompt" => {
+            push_candidate("cmd");
+            push_candidate("command prompt");
+        }
+        "winword" | "microsoftword" => {
+            push_candidate("winword");
+            push_candidate("word");
+            push_candidate("microsoft word");
+        }
+        "excel" | "microsoftexcel" => {
+            push_candidate("excel");
+            push_candidate("microsoft excel");
+        }
+        "powerpnt" | "powerpoint" | "microsoftpowerpoint" => {
+            push_candidate("powerpnt");
+            push_candidate("powerpoint");
+            push_candidate("microsoft powerpoint");
+        }
+        "outlook" | "microsoftoutlook" => {
+            push_candidate("outlook");
+            push_candidate("microsoft outlook");
+        }
+        _ => {}
+    }
+
+    candidates
+}
+
+#[cfg(target_os = "windows")]
 async fn get_app_icon_impl(app_name: &str) -> Result<String, AppError> {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
@@ -1797,6 +1907,14 @@ async fn get_app_icon_impl(app_name: &str) -> Result<String, AppError> {
             }
         }
     }
+
+    let process_candidates = windows_icon_process_candidates(app_name);
+    let ps_candidates = process_candidates
+        .iter()
+        .map(|candidate| format!("'{}'", candidate.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let title_hint = app_name.to_lowercase().replace('\'', "''");
 
     // PowerShell 脚本：使用 SHGetImageList 提取 JUMBO (256x256) 图标
     // 降级链：JUMBO → EXTRALARGE (48x48) → ExtractAssociatedIcon (32x32)
@@ -1887,12 +2005,40 @@ public class JumboIconExtractor {{
 }}
 '@
 
-$app = Get-Process -Name '{}' -ErrorAction SilentlyContinue | Select-Object -First 1
+function Normalize-Key([string]$value) {{
+    if (-not $value) {{ return "" }}
+    return (($value.ToLower()) -replace '[^a-z0-9]+', '')
+}}
+
+$candidates = @({})
+$app = $null
+$processes = Get-Process -ErrorAction SilentlyContinue | Where-Object {{ $_.Path }}
+
+foreach ($candidate in $candidates) {{
+    $candidateKey = Normalize-Key $candidate
+    if (-not $candidateKey) {{ continue }}
+
+    $app = $processes | Where-Object {{
+        (Normalize-Key $_.ProcessName) -eq $candidateKey -or
+        (Normalize-Key [System.IO.Path]::GetFileNameWithoutExtension($_.Path)) -eq $candidateKey
+    }} | Select-Object -First 1
+
+    if ($app) {{ break }}
+}}
+
+if (-not $app) {{
+    $titleHint = '{}'
+    $app = $processes | Where-Object {{
+        $_.MainWindowTitle -and $_.MainWindowTitle.ToLower().Contains($titleHint)
+    }} | Select-Object -First 1
+}}
+
 if ($app -and $app.Path) {{
     [JumboIconExtractor]::Extract($app.Path)
 }}
 "#,
-        app_name.replace(".exe", "").replace('\'', "")
+        ps_candidates,
+        title_hint
     );
 
     let output = Command::new("powershell")

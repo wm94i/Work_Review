@@ -861,10 +861,11 @@ impl Database {
         > = std::collections::HashMap::new();
 
         for (app_name, url, duration) in &browser_url_rows {
+            let normalized_browser_name = crate::monitor::normalize_display_app_name(app_name);
             // 提取域名
             let domain = url.split('/').nth(2).unwrap_or(url).to_string();
 
-            let domain_map = browser_map.entry(app_name.clone()).or_default();
+            let domain_map = browser_map.entry(normalized_browser_name).or_default();
             let url_list = domain_map.entry(domain).or_default();
             url_list.push(UrlDetail {
                 url: url.clone(),
@@ -881,12 +882,24 @@ impl Database {
              ORDER BY total_duration DESC",
         )?;
 
-        let browser_durations: Vec<(String, i64)> = browser_duration_stmt
+        let browser_duration_rows: Vec<(String, i64)> = browser_duration_stmt
             .query_map(params![start_ts, end_ts], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
             })?
             .filter_map(|r| r.ok())
             .collect();
+
+        let mut browser_duration_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for (raw_browser_name, total_duration) in browser_duration_rows {
+            let normalized_browser_name =
+                crate::monitor::normalize_display_app_name(&raw_browser_name);
+            *browser_duration_map
+                .entry(normalized_browser_name)
+                .or_insert(0) += total_duration;
+        }
+
+        let browser_durations: Vec<(String, i64)> = browser_duration_map.into_iter().collect();
 
         // 构建 BrowserUsage 列表
         let mut browser_usage: Vec<BrowserUsage> = browser_durations

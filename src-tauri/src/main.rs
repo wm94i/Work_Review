@@ -68,6 +68,33 @@ fn get_data_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("./data"))
 }
 
+/// 浏览器 URL 采集偶发失败时，尝试从最近同窗口标题的活动里恢复 URL。
+/// 这是近似统计兜底：优先减少同一页面被切碎成多段或掉成 0 站点 0 页面。
+fn recover_recent_browser_url(
+    database: &Database,
+    app_name: &str,
+    window_title: &str,
+    now_ts: i64,
+    max_age_secs: i64,
+) -> Option<String> {
+    if !monitor::is_browser_app(app_name) || window_title.is_empty() {
+        return None;
+    }
+
+    database
+        .get_latest_activity_by_app_title(app_name, window_title)
+        .ok()
+        .flatten()
+        .and_then(|activity| {
+            let age = now_ts - activity.timestamp;
+            if age <= max_age_secs {
+                activity.browser_url.filter(|url| !url.is_empty())
+            } else {
+                None
+            }
+        })
+}
+
 // 系统托盘在 setup 钩子中使用 TrayIconBuilder 创建 (Tauri v2)
 
 /// 后台截屏任务
@@ -88,7 +115,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
     let mut is_currently_idle = false; // 当前是否处于空闲状态
 
     const MIN_CAPTURE_INTERVAL_MS: u128 = 3000; // 最小截图间隔3秒（防抖）
-    const POLL_INTERVAL_SECS: u64 = 5; // 轮询间隔5秒（更精确的时长计算）
+    const POLL_INTERVAL_SECS: u64 = 3; // 轮询间隔3秒，降低页面切换统计误差
 
     // OCR 并发限制：最多 2 个 OCR 任务同时运行，防止任务堆积消耗内存
     let ocr_semaphore = Arc::new(tokio::sync::Semaphore::new(2));
@@ -121,11 +148,11 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
             continue;
         }
 
-        // 轮询检测活动窗口（5秒间隔，平衡精确性和性能）
+        // 轮询检测活动窗口（3秒间隔，降低页面切换统计误差）
         tokio::time::sleep(Duration::from_secs(POLL_INTERVAL_SECS)).await;
 
         // 获取当前活动窗口
-        let active_window = match monitor::get_active_window() {
+        let mut active_window = match monitor::get_active_window() {
             Ok(w) => w,
             Err(e) => {
                 log::error!("获取活动窗口失败: {e}");
@@ -164,6 +191,40 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
             if is_system_transient {
                 log::debug!("跳过系统瞬态进程: {}", active_window.app_name);
                 continue;
+            }
+        }
+
+        // 浏览器 URL 存在瞬时采集失败时，尽量复用同窗口最近一次成功值，减少统计断裂。
+        const BROWSER_URL_STICKY_GAP_SECS: i64 = 120;
+        if active_window.browser_url.is_none()
+            && monitor::is_browser_app(&active_window.app_name)
+            && !active_window.window_title.is_empty()
+        {
+            let now_ts = chrono::Local::now().timestamp();
+
+            let recovered_url = if last_app_name.as_deref() == Some(active_window.app_name.as_str())
+                && last_app_window_title.as_deref() == Some(active_window.window_title.as_str())
+            {
+                last_browser_url.clone()
+            } else {
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                recover_recent_browser_url(
+                    &state_guard.database,
+                    &active_window.app_name,
+                    &active_window.window_title,
+                    now_ts,
+                    BROWSER_URL_STICKY_GAP_SECS,
+                )
+            };
+
+            if let Some(recovered_url) = recovered_url {
+                log::debug!(
+                    "恢复浏览器 URL: {} | {} -> {}",
+                    active_window.app_name,
+                    active_window.window_title,
+                    recovered_url
+                );
+                active_window.browser_url = Some(recovered_url);
             }
         }
 
