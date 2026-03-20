@@ -1,5 +1,5 @@
 use crate::config::{AiProvider, AiProviderConfig, AppConfig, ModelConfig};
-use crate::database::{Activity, DailyReport, DailyStats};
+use crate::database::{Activity, DailyReport, DailyStats, MemorySearchItem};
 use crate::error::AppError;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,15 @@ pub struct ModelTestResult {
     pub message: String,
     pub response_time_ms: u64,
     pub model_info: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryAnswer {
+    pub answer: String,
+    pub references: Vec<MemorySearchItem>,
+    pub used_ai: bool,
+    pub model_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -111,6 +120,271 @@ fn compare_versions(current: &str, latest: &str) -> Ordering {
     }
 
     Ordering::Equal
+}
+
+fn is_text_model_available(model_config: &ModelConfig) -> bool {
+    !model_config.endpoint.trim().is_empty() && !model_config.model.trim().is_empty()
+}
+
+fn format_memory_references(references: &[MemorySearchItem]) -> String {
+    references
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let source_label = match item.source_type.as_str() {
+                "activity" => "活动记录",
+                "hourly_summary" => "小时摘要",
+                "daily_report" => "日报",
+                _ => "记忆",
+            };
+
+            let mut parts = vec![format!("{}. [{}] {}", index + 1, source_label, item.title)];
+            parts.push(format!("日期: {}", item.date));
+
+            if let Some(app_name) = &item.app_name {
+                if !app_name.is_empty() {
+                    parts.push(format!("应用: {app_name}"));
+                }
+            }
+
+            if let Some(browser_url) = &item.browser_url {
+                if !browser_url.is_empty() {
+                    parts.push(format!("URL: {browser_url}"));
+                }
+            }
+
+            if let Some(duration) = item.duration {
+                if duration > 0 {
+                    parts.push(format!("时长: {}秒", duration));
+                }
+            }
+
+            if !item.excerpt.is_empty() {
+                parts.push(format!("内容: {}", item.excerpt));
+            }
+
+            parts.join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn build_memory_answer_prompt(question: &str, references: &[MemorySearchItem]) -> String {
+    format!(
+        "你是一个个人工作记忆助手。请严格基于给定记录回答，不要编造未出现的事实。\n\
+如果证据不足，要明确说“不确定”或“记录里没有显示”。\n\
+优先回答时间、应用、网站、工作主题和依据。\n\
+回答请用中文，结构简洁，可使用短段落或要点。\n\n\
+用户问题：{question}\n\n\
+相关记录：\n{refs}",
+        refs = format_memory_references(references)
+    )
+}
+
+fn build_fallback_memory_answer(question: &str, references: &[MemorySearchItem]) -> String {
+    if references.is_empty() {
+        return format!(
+            "未找到和“{question}”相关的历史记录。\n\n可尝试换一个关键词，或缩小日期范围后再搜索。"
+        );
+    }
+
+    let mut answer = String::new();
+    answer.push_str("以下是检索到的相关记录。\n\n");
+
+    for item in references.iter().take(5) {
+        answer.push_str(&format!("- {}（{}）", item.title, item.date));
+        if let Some(app_name) = &item.app_name {
+            if !app_name.is_empty() {
+                answer.push_str(&format!("，应用：{app_name}"));
+            }
+        }
+        if let Some(browser_url) = &item.browser_url {
+            if !browser_url.is_empty() {
+                answer.push_str(&format!("，URL：{browser_url}"));
+            }
+        }
+        if let Some(duration) = item.duration {
+            if duration > 0 {
+                answer.push_str(&format!("，时长约 {} 秒", duration));
+            }
+        }
+        if !item.excerpt.is_empty() {
+            answer.push_str(&format!("。摘要：{}", item.excerpt));
+        }
+        answer.push('\n');
+    }
+
+    answer.push_str("\n当前为基础回答模式，仅基于检索结果做整理，未启用大模型归纳。");
+    answer
+}
+
+async fn generate_memory_answer_with_model(
+    model_config: &ModelConfig,
+    question: &str,
+    references: &[MemorySearchItem],
+) -> Result<String, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .connect_timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| AppError::Unknown(e.to_string()))?;
+
+    let prompt = build_memory_answer_prompt(question, references);
+
+    match model_config.provider {
+        AiProvider::Ollama => {
+            let response = client
+                .post(format!("{}/api/generate", model_config.endpoint))
+                .json(&serde_json::json!({
+                    "model": model_config.model,
+                    "prompt": prompt,
+                    "stream": false
+                }))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                return Err(AppError::Analysis(format!(
+                    "Ollama 记忆问答失败: {}",
+                    response.status()
+                )));
+            }
+
+            let result: serde_json::Value = response.json().await?;
+            let answer = result["response"].as_str().unwrap_or("").trim().to_string();
+            if answer.is_empty() {
+                return Err(AppError::Analysis("Ollama 返回空内容".to_string()));
+            }
+            Ok(answer)
+        }
+        AiProvider::Claude => {
+            let api_key = model_config.api_key.as_deref().unwrap_or("");
+            if api_key.is_empty() {
+                return Err(AppError::Analysis("Claude API Key 未配置".to_string()));
+            }
+
+            let response = client
+                .post(format!("{}/messages", model_config.endpoint))
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&serde_json::json!({
+                    "model": model_config.model,
+                    "max_tokens": 1600,
+                    "system": "你是一个严谨的个人工作记忆助手，只能基于提供的记录作答，请用中文回答。",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
+                }))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(AppError::Analysis(format!("Claude 记忆问答失败: {error_text}")));
+            }
+
+            let result: serde_json::Value = response.json().await?;
+            let answer = result["content"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if answer.is_empty() {
+                return Err(AppError::Analysis("Claude 返回空内容".to_string()));
+            }
+            Ok(answer)
+        }
+        AiProvider::Gemini => {
+            let api_key = model_config.api_key.as_deref().unwrap_or("");
+            if api_key.is_empty() {
+                return Err(AppError::Analysis("Gemini API Key 未配置".to_string()));
+            }
+
+            let response = client
+                .post(format!(
+                    "{}/models/{}:generateContent?key={}",
+                    model_config.endpoint, model_config.model, api_key
+                ))
+                .json(&serde_json::json!({
+                    "contents": [{
+                        "parts": [{
+                            "text": format!("你是一个严谨的个人工作记忆助手，只能基于提供的记录作答，请用中文回答。\n\n{}", prompt)
+                        }]
+                    }],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "maxOutputTokens": 1600
+                    }
+                }))
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(AppError::Analysis(format!("Gemini 记忆问答失败: {error_text}")));
+            }
+
+            let result: serde_json::Value = response.json().await?;
+            let answer = result["candidates"][0]["content"]["parts"][0]["text"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if answer.is_empty() {
+                return Err(AppError::Analysis("Gemini 返回空内容".to_string()));
+            }
+            Ok(answer)
+        }
+        _ => {
+            let mut request = client
+                .post(format!("{}/chat/completions", model_config.endpoint))
+                .json(&serde_json::json!({
+                    "model": model_config.model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "你是一个严谨的个人工作记忆助手，只能基于提供的记录作答，请用中文回答。"
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    "max_tokens": 1600,
+                    "temperature": 0.2
+                }));
+
+            if let Some(api_key) = &model_config.api_key {
+                if !api_key.is_empty() {
+                    request = request.header("Authorization", format!("Bearer {api_key}"));
+                }
+            }
+
+            let response = request.send().await?;
+
+            if !response.status().is_success() {
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(AppError::Analysis(format!(
+                    "OpenAI 兼容记忆问答失败: {error_text}"
+                )));
+            }
+
+            let result: serde_json::Value = response.json().await?;
+            let answer = result["choices"][0]["message"]["content"]
+                .as_str()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if answer.is_empty() {
+                return Err(AppError::Analysis("模型返回空内容".to_string()));
+            }
+            Ok(answer)
+        }
+    }
 }
 
 fn update_settings_path(data_dir: &Path) -> std::path::PathBuf {
@@ -388,6 +662,74 @@ pub async fn get_activity(
 ) -> Result<Option<Activity>, AppError> {
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.database.get_activity_by_id(id)
+}
+
+/// 搜索工作记忆
+#[tauri::command]
+pub async fn search_memory(
+    query: String,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    limit: Option<u32>,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<MemorySearchItem>, AppError> {
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    state.database.search_memory(
+        &query,
+        date_from.as_deref(),
+        date_to.as_deref(),
+        limit.unwrap_or(20) as usize,
+    )
+}
+
+/// 基于工作记忆回答问题
+#[tauri::command]
+pub async fn ask_memory(
+    question: String,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<MemoryAnswer, AppError> {
+    let (model_config, references) = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        let references =
+            state
+                .database
+                .search_memory(&question, date_from.as_deref(), date_to.as_deref(), 8)?;
+        (state.config.text_model.clone(), references)
+    };
+
+    if references.is_empty() {
+        return Ok(MemoryAnswer {
+            answer: build_fallback_memory_answer(&question, &references),
+            references,
+            used_ai: false,
+            model_name: None,
+        });
+    }
+
+    if is_text_model_available(&model_config) {
+        match generate_memory_answer_with_model(&model_config, &question, &references).await {
+            Ok(answer) => {
+                return Ok(MemoryAnswer {
+                    answer,
+                    references,
+                    used_ai: true,
+                    model_name: Some(model_config.model),
+                });
+            }
+            Err(error) => {
+                log::warn!("记忆问答 AI 生成失败，回退基础模式: {error}");
+            }
+        }
+    }
+
+    Ok(MemoryAnswer {
+        answer: build_fallback_memory_answer(&question, &references),
+        references,
+        used_ai: false,
+        model_name: None,
+    })
 }
 
 /// 生成日报

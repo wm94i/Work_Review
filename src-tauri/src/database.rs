@@ -139,10 +139,111 @@ pub struct UrlUsage {
     pub duration: i64,
 }
 
+/// 工作记忆搜索结果
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySearchItem {
+    pub source_type: String,
+    pub source_id: Option<i64>,
+    pub date: String,
+    pub timestamp: i64,
+    pub title: String,
+    pub excerpt: String,
+    pub app_name: Option<String>,
+    pub browser_url: Option<String>,
+    pub duration: Option<i64>,
+    pub score: i64,
+}
+
 /// 规范化 URL（用于合并判断）
 /// 移除末尾斜杠、规范化空白字符
 pub fn normalize_url(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
+}
+
+fn parse_date_bounds(date_from: Option<&str>, date_to: Option<&str>) -> (Option<i64>, Option<i64>) {
+    let start_ts = date_from.and_then(|date| {
+        chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .ok()
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .map(safe_local_timestamp)
+    });
+
+    let end_ts = date_to.and_then(|date| {
+        chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .ok()
+            .and_then(|d| d.succ_opt())
+            .and_then(|d| d.and_hms_opt(0, 0, 0))
+            .map(safe_local_timestamp)
+    });
+
+    (start_ts, end_ts)
+}
+
+fn tokenize_memory_query(query: &str) -> Vec<String> {
+    query
+        .split_whitespace()
+        .map(|token| token.trim().to_lowercase())
+        .filter(|token| token.len() >= 2)
+        .collect()
+}
+
+fn score_memory_match(query: &str, fields: &[&str]) -> i64 {
+    let normalized_query = query.trim().to_lowercase();
+    if normalized_query.is_empty() {
+        return 0;
+    }
+
+    let normalized_fields: Vec<String> = fields
+        .iter()
+        .map(|field| field.trim().to_lowercase())
+        .filter(|field| !field.is_empty())
+        .collect();
+
+    if normalized_fields.is_empty() {
+        return 0;
+    }
+
+    let mut score = 0;
+
+    for field in &normalized_fields {
+        if field == &normalized_query {
+            score += 180;
+        } else if field.contains(&normalized_query) {
+            score += 120;
+        }
+    }
+
+    for token in tokenize_memory_query(query) {
+        for field in &normalized_fields {
+            if field == &token {
+                score += 45;
+            } else if field.contains(&token) {
+                score += 20;
+            }
+        }
+    }
+
+    score
+}
+
+fn truncate_excerpt(value: &str, max_chars: usize) -> String {
+    let text = value.trim().replace('\n', " ").replace('\r', " ");
+    let mut iter = text.chars();
+    let excerpt: String = iter.by_ref().take(max_chars).collect();
+    if iter.next().is_some() {
+        format!("{excerpt}…")
+    } else {
+        excerpt
+    }
+}
+
+fn pick_excerpt(candidates: &[String]) -> String {
+    candidates
+        .iter()
+        .find(|candidate| !candidate.trim().is_empty())
+        .map(|candidate| truncate_excerpt(candidate, 180))
+        .unwrap_or_default()
 }
 
 /// 数据库管理器
@@ -830,24 +931,26 @@ impl Database {
             )
             .unwrap_or(0);
 
-        // 计算各 URL 使用时长（按浏览器和URL分组）
-        let mut browser_url_stmt = conn.prepare(
-            "SELECT app_name, RTRIM(browser_url, '/') as browser_url, SUM(duration) as total_duration 
-             FROM activities 
-             WHERE timestamp >= ?1 AND timestamp < ?2 
-               AND browser_url IS NOT NULL AND browser_url != ''
+        // 网站访问统计采用两级兜底：
+        // 1. 优先使用已写入的 browser_url
+        // 2. browser_url 为空时，从窗口标题 / OCR 文本推断页面或站点
+        let mut browser_activity_stmt = conn.prepare(
+            "SELECT app_name, browser_url, window_title, ocr_text, duration
+             FROM activities
+             WHERE timestamp >= ?1 AND timestamp < ?2
                AND category = 'browser'
-             GROUP BY app_name, RTRIM(browser_url, '/') 
-             ORDER BY app_name, total_duration DESC",
+             ORDER BY timestamp DESC",
         )?;
 
-        // 收集所有浏览器的 URL 数据
-        let browser_url_rows: Vec<(String, String, i64)> = browser_url_stmt
+        let browser_activity_rows: Vec<(String, Option<String>, String, Option<String>, i64)> =
+            browser_activity_stmt
             .query_map(params![start_ts, end_ts], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })?
             .filter_map(|r| r.ok())
@@ -857,46 +960,39 @@ impl Database {
         // 结构: { browser_name: { domain: { url: duration } } }
         let mut browser_map: std::collections::HashMap<
             String,
-            std::collections::HashMap<String, Vec<UrlDetail>>,
+            std::collections::HashMap<String, std::collections::HashMap<String, i64>>,
         > = std::collections::HashMap::new();
-
-        for (app_name, url, duration) in &browser_url_rows {
-            let normalized_browser_name = crate::monitor::normalize_display_app_name(app_name);
-            // 提取域名
-            let domain = url.split('/').nth(2).unwrap_or(url).to_string();
-
-            let domain_map = browser_map.entry(normalized_browser_name).or_default();
-            let url_list = domain_map.entry(domain).or_default();
-            url_list.push(UrlDetail {
-                url: url.clone(),
-                duration: *duration,
-            });
-        }
-
-        // 获取各浏览器的总时长
-        let mut browser_duration_stmt = conn.prepare(
-            "SELECT app_name, SUM(duration) as total_duration 
-             FROM activities 
-             WHERE timestamp >= ?1 AND timestamp < ?2 AND category = 'browser'
-             GROUP BY app_name 
-             ORDER BY total_duration DESC",
-        )?;
-
-        let browser_duration_rows: Vec<(String, i64)> = browser_duration_stmt
-            .query_map(params![start_ts, end_ts], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
-            .filter_map(|r| r.ok())
-            .collect();
-
         let mut browser_duration_map: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
-        for (raw_browser_name, total_duration) in browser_duration_rows {
-            let normalized_browser_name =
-                crate::monitor::normalize_display_app_name(&raw_browser_name);
+        let mut url_duration_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+
+        for (app_name, browser_url, window_title, ocr_text, duration) in browser_activity_rows {
+            let normalized_browser_name = crate::monitor::normalize_display_app_name(&app_name);
             *browser_duration_map
-                .entry(normalized_browser_name)
-                .or_insert(0) += total_duration;
+                .entry(normalized_browser_name.clone())
+                .or_insert(0) += duration;
+
+            let page_hint = browser_url
+                .as_deref()
+                .map(normalize_url)
+                .filter(|url| !url.is_empty())
+                .or_else(|| crate::monitor::infer_browser_page_hint(&window_title))
+                .or_else(|| {
+                    ocr_text
+                        .as_deref()
+                        .and_then(crate::monitor::infer_browser_page_hint_from_text)
+                });
+
+            let Some(page_hint) = page_hint else {
+                continue;
+            };
+
+            let domain = crate::monitor::browser_page_domain_label(&page_hint);
+            let domain_map = browser_map.entry(normalized_browser_name).or_default();
+            let page_map = domain_map.entry(domain).or_default();
+            *page_map.entry(page_hint.clone()).or_insert(0) += duration;
+            *url_duration_map.entry(page_hint).or_insert(0) += duration;
         }
 
         let browser_durations: Vec<(String, i64)> = browser_duration_map.into_iter().collect();
@@ -911,11 +1007,22 @@ impl Database {
                     Some(dm) => dm
                         .iter()
                         .map(|(domain, urls)| {
-                            let domain_duration: i64 = urls.iter().map(|u| u.duration).sum();
+                            let mut url_details: Vec<UrlDetail> = urls
+                                .iter()
+                                .map(|(url, duration)| UrlDetail {
+                                    url: url.clone(),
+                                    duration: *duration,
+                                })
+                                .collect();
+                            url_details.sort_by(|a, b| {
+                                b.duration.cmp(&a.duration).then_with(|| a.url.cmp(&b.url))
+                            });
+                            let domain_duration: i64 =
+                                url_details.iter().map(|u| u.duration).sum();
                             DomainUsage {
                                 domain: domain.clone(),
                                 duration: domain_duration,
-                                urls: urls.clone(),
+                                urls: url_details,
                             }
                         })
                         .collect(),
@@ -936,26 +1043,17 @@ impl Database {
         browser_usage.sort_by(|a, b| b.duration.cmp(&a.duration));
 
         // 兼容旧的 url_usage 和 domain_usage（保持向后兼容）
-        let mut url_stmt = conn.prepare(
-            "SELECT RTRIM(browser_url, '/') as browser_url, SUM(duration) as total_duration 
-             FROM activities 
-             WHERE timestamp >= ?1 AND timestamp < ?2 AND browser_url IS NOT NULL AND browser_url != ''
-             GROUP BY RTRIM(browser_url, '/') 
-             ORDER BY total_duration DESC
-             LIMIT 10"
-        )?;
+        let mut url_usage_rows: Vec<(String, i64)> = url_duration_map.into_iter().collect();
+        url_usage_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        url_usage_rows.truncate(10);
 
-        let url_usage: Vec<UrlUsage> = url_stmt
-            .query_map(params![start_ts, end_ts], |row| {
-                let url: String = row.get(0)?;
-                let domain = url.split('/').nth(2).unwrap_or(&url).to_string();
-                Ok(UrlUsage {
-                    url,
-                    domain,
-                    duration: row.get(1)?,
-                })
-            })?
-            .filter_map(|r| r.ok())
+        let url_usage: Vec<UrlUsage> = url_usage_rows
+            .into_iter()
+            .map(|(url, duration)| UrlUsage {
+                domain: crate::monitor::browser_page_domain_label(&url),
+                url,
+                duration,
+            })
             .collect();
 
         // 按域名分组统计（兼容旧逻辑）
@@ -1315,6 +1413,208 @@ impl Database {
             .take(limit as usize)
             .map(|(name, _)| name)
             .collect())
+    }
+
+    /// 搜索工作记忆
+    /// 第一阶段使用结构化检索 + Rust 侧评分，不依赖向量库。
+    pub fn search_memory(
+        &self,
+        query: &str,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<MemorySearchItem>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let trimmed_query = query.trim();
+        if trimmed_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let limit = limit.clamp(1, 50);
+        let fetch_limit = (limit as i64) * 12;
+        let (start_ts, end_ts) = parse_date_bounds(date_from, date_to);
+        let report_date_from = date_from.map(|s| s.to_string());
+        let report_date_to = date_to.map(|s| s.to_string());
+
+        let mut items = Vec::new();
+
+        let mut activity_stmt = conn.prepare(
+            "SELECT id, timestamp, app_name, window_title, ocr_text, browser_url, duration
+             FROM activities
+             WHERE (?1 IS NULL OR timestamp >= ?1)
+               AND (?2 IS NULL OR timestamp < ?2)
+             ORDER BY timestamp DESC
+             LIMIT ?3",
+        )?;
+
+        let activity_rows: Vec<(i64, i64, String, String, Option<String>, Option<String>, i64)> =
+            activity_stmt
+                .query_map(params![start_ts, end_ts, fetch_limit], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })?
+                .filter_map(|row| row.ok())
+                .collect();
+
+        for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration) in activity_rows {
+            let score = score_memory_match(
+                trimmed_query,
+                &[
+                    &app_name,
+                    &window_title,
+                    ocr_text.as_deref().unwrap_or(""),
+                    browser_url.as_deref().unwrap_or(""),
+                ],
+            );
+            if score <= 0 {
+                continue;
+            }
+
+            let date = Local
+                .timestamp_opt(timestamp, 0)
+                .earliest()
+                .map(|dt| dt.format("%Y-%m-%d").to_string())
+                .unwrap_or_default();
+
+            let excerpt = pick_excerpt(&[
+                ocr_text.clone().unwrap_or_default(),
+                browser_url.clone().unwrap_or_default(),
+                window_title.clone(),
+            ]);
+
+            items.push(MemorySearchItem {
+                source_type: "activity".to_string(),
+                source_id: Some(id),
+                date,
+                timestamp,
+                title: if window_title.trim().is_empty() {
+                    app_name.clone()
+                } else {
+                    window_title.clone()
+                },
+                excerpt,
+                app_name: Some(crate::monitor::normalize_display_app_name(&app_name)),
+                browser_url,
+                duration: Some(duration),
+                score,
+            });
+        }
+
+        let mut hourly_stmt = conn.prepare(
+            "SELECT id, date, hour, summary, main_apps, total_duration, created_at
+             FROM hourly_summaries
+             WHERE (?1 IS NULL OR date >= ?1)
+               AND (?2 IS NULL OR date <= ?2)
+             ORDER BY created_at DESC
+             LIMIT ?3",
+        )?;
+
+        let hourly_rows: Vec<(i64, String, i32, String, String, i64, i64)> = hourly_stmt
+            .query_map(
+                params![report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        for (id, date, hour, summary, main_apps, total_duration, created_at) in hourly_rows {
+            let score =
+                score_memory_match(trimmed_query, &[&summary, &main_apps, &date, &hour.to_string()]);
+            if score <= 0 {
+                continue;
+            }
+
+            items.push(MemorySearchItem {
+                source_type: "hourly_summary".to_string(),
+                source_id: Some(id),
+                date: date.clone(),
+                timestamp: created_at,
+                title: format!("{date} {:02}:00 小时摘要", hour),
+                excerpt: pick_excerpt(&[summary.clone(), main_apps.clone()]),
+                app_name: None,
+                browser_url: None,
+                duration: Some(total_duration),
+                score,
+            });
+        }
+
+        let mut report_stmt = conn.prepare(
+            "SELECT date, content, ai_mode, model_name, created_at
+             FROM daily_reports
+             WHERE (?1 IS NULL OR date >= ?1)
+               AND (?2 IS NULL OR date <= ?2)
+             ORDER BY created_at DESC
+             LIMIT ?3",
+        )?;
+
+        let report_rows: Vec<(String, String, String, Option<String>, i64)> = report_stmt
+            .query_map(
+                params![report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                },
+            )?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        for (date, content, ai_mode, model_name, created_at) in report_rows {
+            let score = score_memory_match(
+                trimmed_query,
+                &[&date, &content, &ai_mode, model_name.as_deref().unwrap_or("")],
+            );
+            if score <= 0 {
+                continue;
+            }
+
+            items.push(MemorySearchItem {
+                source_type: "daily_report".to_string(),
+                source_id: None,
+                date: date.clone(),
+                timestamp: created_at,
+                title: format!("{date} 日报"),
+                excerpt: pick_excerpt(&[content]),
+                app_name: None,
+                browser_url: None,
+                duration: None,
+                score,
+            });
+        }
+
+        items.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| b.timestamp.cmp(&a.timestamp))
+                .then_with(|| a.title.cmp(&b.title))
+        });
+        items.truncate(limit);
+
+        Ok(items)
     }
 }
 

@@ -1,4 +1,17 @@
-use crate::error::{AppError, Result};
+use crate::error::Result;
+#[cfg(target_os = "macos")]
+use crate::error::AppError;
+use once_cell::sync::Lazy;
+use regex::Regex;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+static URL_LIKE_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"(?i)(https?://[^\s<>"']+|(?:localhost|(?:[a-z0-9-]+\.)+[a-z]{2,}|(?:\d{1,3}\.){3}\d{1,3})(?::\d{2,5})?(?:/[^\s<>"']*)?)"#,
+    )
+    .expect("URL regex should compile")
+});
 
 /// 活动窗口信息
 #[derive(Debug, Clone)]
@@ -113,10 +126,72 @@ fn is_probable_domain(value: &str) -> bool {
 }
 
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn trim_url_candidate(value: &str) -> &str {
+    value.trim().trim_matches(|c: char| {
+        matches!(
+            c,
+            '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '{' | '}' | '<' | '>' | ',' | ';'
+        )
+    })
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn split_host_and_rest(value: &str) -> (&str, &str) {
+    if let Some(index) = value.find(|c| ['/', '?', '#'].contains(&c)) {
+        (&value[..index], &value[index..])
+    } else {
+        (value, "")
+    }
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn split_host_port(value: &str) -> (&str, Option<&str>) {
+    if let Some(index) = value.rfind(':') {
+        let host = &value[..index];
+        let port = &value[index + 1..];
+        if !host.is_empty() && !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+            return (host, Some(port));
+        }
+    }
+
+    (value, None)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn is_probable_ipv4(value: &str) -> bool {
+    let parts: Vec<&str> = value.split('.').collect();
+    if parts.len() != 4 {
+        return false;
+    }
+
+    parts.iter().all(|part| {
+        !part.is_empty()
+            && part.len() <= 3
+            && part.chars().all(|c| c.is_ascii_digit())
+            && part.parse::<u8>().is_ok()
+    })
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn is_probable_host(value: &str) -> bool {
+    let host = value.trim().trim_end_matches('.');
+    if host.is_empty() {
+        return false;
+    }
+
+    let (host_without_port, _) = split_host_port(host);
+    let host_lower = host_without_port.to_lowercase();
+
+    host_lower == "localhost"
+        || is_probable_domain(host_without_port)
+        || is_probable_ipv4(host_without_port)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 fn normalize_possible_url(value: &str) -> Option<String> {
-    let candidate = value
-        .trim()
-        .trim_matches(|c: char| c.is_control() || c == '\u{200b}' || c == '\u{feff}');
+    let candidate = trim_url_candidate(value)
+        .trim_matches(|c: char| c.is_control() || c == '\u{200b}' || c == '\u{feff}')
+        .trim_end_matches('.');
 
     if candidate.is_empty() {
         return None;
@@ -140,11 +215,54 @@ fn normalize_possible_url(value: &str) -> Option<String> {
         return Some(candidate.to_string());
     }
 
+    let (host, _) = split_host_and_rest(candidate);
+    if is_probable_host(host) {
+        let host_lower = split_host_port(host).0.to_lowercase();
+        let scheme = if host_lower == "localhost" || is_probable_ipv4(split_host_port(host).0) {
+            "http://"
+        } else {
+            "https://"
+        };
+        return Some(format!("{}{}", scheme, candidate.trim_end_matches('/')));
+    }
+
     if is_probable_domain(candidate) {
         return Some(format!("https://{}", candidate.trim_end_matches('/')));
     }
 
     None
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn extract_url_from_text(text: &str) -> Option<String> {
+    URL_LIKE_RE
+        .find_iter(text)
+        .filter_map(|m| normalize_possible_url(m.as_str()))
+        .next()
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn infer_browser_page_hint(window_title: &str) -> Option<String> {
+    extract_url_from_title(window_title)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn infer_browser_page_hint_from_text(text: &str) -> Option<String> {
+    extract_url_from_text(text)
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn browser_page_domain_label(page_hint: &str) -> String {
+    if let Some(url) = normalize_possible_url(page_hint) {
+        let without_scheme = url
+            .split_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(url.as_str());
+        let (host, _) = split_host_and_rest(without_scheme);
+        return split_host_port(host).0.to_string();
+    }
+
+    page_hint.trim().to_string()
 }
 
 /// 获取当前活动窗口信息
@@ -189,7 +307,7 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         GetWindowThreadProcessId(hwnd, &mut pid);
 
         // 获取进程名，使用多级备用策略确保 Win10 低权限下能正确读取
-        let app_name = if pid > 0 {
+        let raw_app_name = if pid > 0 {
             // 方法一：PROCESS_QUERY_LIMITED_INFORMATION + GetModuleBaseNameW
             // 对大多数普通进程（Word、VSCode、WPS 等）有效
             let handle = OpenProcess(PROCESS_QUERY_LIMITED, 0, pid);
@@ -257,8 +375,10 @@ pub fn get_active_window() -> Result<ActiveWindow> {
             "Unknown".to_string()
         };
 
+        let app_name = normalize_display_app_name(&raw_app_name);
+
         // 尝试获取浏览器 URL (Windows)
-        let browser_url = get_browser_url_windows(&app_name, &window_title, hwnd as isize);
+        let browser_url = get_browser_url_windows(&raw_app_name, &window_title, hwnd as isize);
 
         Ok(ActiveWindow {
             app_name,
@@ -317,10 +437,117 @@ fn get_browser_url_windows(app_name: &str, window_title: &str, hwnd: isize) -> O
     }
 
     // 使用原生 UI Automation 获取 URL，catch_unwind 防止 COM 异常导致崩溃
-    let result = std::panic::catch_unwind(|| get_url_via_uiautomation(hwnd)).unwrap_or(None);
+    let native_result = std::panic::catch_unwind(|| get_url_via_uiautomation(hwnd)).unwrap_or(None);
+    if let Some(url) = native_result {
+        log::debug!("浏览器 URL 命中原生 UIA: {url}");
+        return Some(url);
+    }
+
+    let powershell_result = get_url_via_powershell_uia(hwnd);
+    if let Some(url) = powershell_result {
+        log::debug!("浏览器 URL 命中 PowerShell UIA: {url}");
+        return Some(url);
+    }
 
     // UI Automation 失败时，尝试从窗口标题提取域名信息作为兜底
-    result.or_else(|| extract_url_from_title(window_title))
+    let title_result = infer_browser_page_hint(window_title);
+    if title_result.is_none() {
+        log::debug!(
+            "浏览器 URL 获取失败: app={}, title={}",
+            app_name,
+            window_title
+        );
+    }
+    title_result
+}
+
+/// Windows PowerShell 5.1 + UIAutomation 兜底读取真实地址栏 URL
+/// 仅在原生 UIAutomation 失败时调用，避免常态化子进程开销。
+#[cfg(target_os = "windows")]
+fn get_url_via_powershell_uia(hwnd: isize) -> Option<String> {
+    use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    const POWERSHELL_PATH: &str = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+
+    let script = format!(
+        r#"
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+
+$hwnd = [IntPtr]::new({hwnd})
+if ($hwnd -eq [IntPtr]::Zero) {{ exit 0 }}
+
+$window = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $window) {{ exit 0 }}
+
+$editCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Edit
+)
+$docCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Document
+)
+$allConditions = New-Object System.Windows.Automation.OrCondition($editCondition, $docCondition)
+$nodes = $window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $allConditions)
+
+for ($i = 0; $i -lt $nodes.Count; $i++) {{
+    $node = $nodes.Item($i)
+    $candidates = New-Object System.Collections.Generic.List[string]
+
+    try {{
+        $vp = $node.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+        if ($vp -ne $null -and $vp.Current.Value) {{ [void]$candidates.Add($vp.Current.Value) }}
+    }} catch {{ }}
+
+    try {{
+        $lp = $node.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
+        if ($lp -ne $null -and $lp.Current.Value) {{ [void]$candidates.Add($lp.Current.Value) }}
+    }} catch {{ }}
+
+    try {{
+        if ($node.Current.Name) {{ [void]$candidates.Add($node.Current.Name) }}
+    }} catch {{ }}
+
+    foreach ($raw in $candidates) {{
+        if ([string]::IsNullOrWhiteSpace($raw)) {{ continue }}
+        $value = $raw.Trim()
+        if ($value -match '^(https?://|chrome://|edge://|about:|file:)' -or
+            $value -match '^(localhost|([a-zA-Z0-9-]+\.)+[a-zA-Z]{{2,}}|\d{{1,3}}(\.\d{{1,3}}){{3}})(:\d{{2,5}})?([/?#].*)?$') {{
+            Write-Output $value
+            exit 0
+        }}
+    }}
+}}
+"#
+    );
+
+    let output = Command::new(POWERSHELL_PATH)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Sta",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.trim().is_empty() {
+            log::debug!("PowerShell URL 采集失败: {}", stderr.trim());
+        }
+        return None;
+    }
+
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    normalize_possible_url(&value)
 }
 
 /// 通过原生 UI Automation COM 接口获取浏览器地址栏 URL
@@ -464,7 +691,7 @@ fn extract_url_from_title(window_title: &str) -> Option<String> {
         }
     }
 
-    None
+    extract_url_from_text(title)
 }
 
 #[cfg(test)]
@@ -492,6 +719,14 @@ mod tests {
             Some("https://example.com".to_string())
         );
         assert_eq!(
+            normalize_possible_url("bing.com/search?q=test"),
+            Some("https://bing.com/search?q=test".to_string())
+        );
+        assert_eq!(
+            normalize_possible_url("localhost:3000/dashboard"),
+            Some("http://localhost:3000/dashboard".to_string())
+        );
+        assert_eq!(
             normalize_possible_url("chrome://settings"),
             Some("chrome://settings".to_string())
         );
@@ -504,6 +739,10 @@ mod tests {
         assert_eq!(
             extract_url_from_title("项目文档 - docs.example.com - Google Chrome"),
             Some("https://docs.example.com".to_string())
+        );
+        assert_eq!(
+            extract_url_from_title("bing.com/search?q=test - Google Chrome"),
+            Some("https://bing.com/search?q=test".to_string())
         );
         assert_eq!(extract_url_from_title("版本 1.2.3 - Google Chrome"), None);
         assert!(is_probable_domain("sub.example.com"));
