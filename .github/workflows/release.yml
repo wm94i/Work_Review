@@ -93,13 +93,11 @@ jobs:
               require_file "*/release/bundle/macos/*_aarch64.app.tar.gz" "macOS aarch64 自动更新包"
               require_file "*/release/bundle/macos/*_aarch64.app.tar.gz.sig" "macOS aarch64 自动更新签名"
               require_file "*/release/bundle/dmg/*.dmg" "macOS aarch64 DMG"
-              require_file "*/release/bundle/dmg/*.sig" "macOS aarch64 DMG 签名"
               ;;
             x86_64-apple-darwin)
               require_file "*/release/bundle/macos/*_x64.app.tar.gz" "macOS x64 自动更新包"
               require_file "*/release/bundle/macos/*_x64.app.tar.gz.sig" "macOS x64 自动更新签名"
               require_file "*/release/bundle/dmg/*.dmg" "macOS x64 DMG"
-              require_file "*/release/bundle/dmg/*.sig" "macOS x64 DMG 签名"
               ;;
             x86_64-pc-windows-msvc)
               require_file "*/release/bundle/nsis/*.exe" "Windows 安装包"
