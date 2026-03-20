@@ -4,12 +4,20 @@ use crate::error::AppError;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 const GITHUB_LATEST_RELEASE_API: &str =
     "https://api.github.com/repos/wm94i/Work_Review/releases/latest";
+const GITHUB_LATEST_RELEASE_PAGE: &str = "https://github.com/wm94i/Work_Review/releases/latest";
+const UPDATER_JSON_ENDPOINTS: &[&str] = &[
+    "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+    "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+    "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+];
+const DEFAULT_UPDATE_CHECK_INTERVAL_HOURS: u64 = 24;
 
 /// 模型测试结果
 #[derive(Serialize, Deserialize, Debug)]
@@ -26,22 +34,48 @@ pub struct GithubUpdateInfo {
     pub current_version: String,
     pub latest_version: String,
     pub available: bool,
-    pub asset_name: Option<String>,
-    pub download_url: Option<String>,
+    pub auto_update_ready: bool,
+    pub release_url: String,
     pub body: Option<String>,
+    pub source: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSettings {
+    pub auto_check: bool,
+    pub last_check_time: u64,
+    #[serde(default = "default_update_check_interval")]
+    pub check_interval_hours: u64,
 }
 
 #[derive(Deserialize, Debug)]
 struct GithubReleaseResponse {
     tag_name: String,
+    html_url: String,
     body: Option<String>,
-    assets: Vec<GithubReleaseAsset>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-struct GithubReleaseAsset {
-    name: String,
-    browser_download_url: String,
+struct UpdaterJsonResponse {
+    version: String,
+    notes: Option<String>,
+    #[allow(dead_code)]
+    pub_date: Option<String>,
+}
+
+fn default_update_check_interval() -> u64 {
+    DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            auto_check: true,
+            last_check_time: 0,
+            check_interval_hours: DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
+        }
+    }
 }
 
 fn normalize_version(version: &str) -> &str {
@@ -79,84 +113,96 @@ fn compare_versions(current: &str, latest: &str) -> Ordering {
     Ordering::Equal
 }
 
-#[cfg(target_os = "windows")]
-fn current_arch_aliases() -> &'static [&'static str] {
-    match std::env::consts::ARCH {
-        "x86_64" => &["x64", "x86_64", "amd64"],
-        "aarch64" => &["arm64", "aarch64"],
-        "x86" => &["x86", "i686", "ia32"],
-        _ => &[],
+fn update_settings_path(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join("update_settings.json")
+}
+
+fn load_update_settings_from_dir(data_dir: &Path) -> Result<UpdateSettings, AppError> {
+    let settings_path = update_settings_path(data_dir);
+
+    if !settings_path.exists() {
+        return Ok(UpdateSettings::default());
     }
+
+    let content = std::fs::read_to_string(&settings_path)
+        .map_err(|e| AppError::Unknown(format!("读取更新设置失败: {e}")))?;
+
+    serde_json::from_str(&content).map_err(|e| AppError::Unknown(format!("解析更新设置失败: {e}")))
 }
 
-#[cfg(target_os = "windows")]
-fn pick_release_asset(assets: &[GithubReleaseAsset]) -> Option<GithubReleaseAsset> {
-    let arch_aliases = current_arch_aliases();
-    let matches_arch = |name: &str| {
-        arch_aliases.is_empty()
-            || arch_aliases
-                .iter()
-                .any(|alias| name.contains(alias) || name.contains(&alias.replace('_', "-")))
+fn save_update_settings_to_dir(data_dir: &Path, settings: &UpdateSettings) -> Result<(), AppError> {
+    let settings_path = update_settings_path(data_dir);
+    let content = serde_json::to_string_pretty(settings)
+        .map_err(|e| AppError::Unknown(format!("序列化更新设置失败: {e}")))?;
+
+    std::fs::write(&settings_path, content)
+        .map_err(|e| AppError::Unknown(format!("保存更新设置失败: {e}")))?;
+
+    Ok(())
+}
+
+fn should_check_for_updates(settings: &UpdateSettings) -> bool {
+    if !settings.auto_check {
+        return false;
+    }
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let interval_hours = if settings.check_interval_hours > 0 {
+        settings.check_interval_hours
+    } else {
+        DEFAULT_UPDATE_CHECK_INTERVAL_HOURS
     };
+    let elapsed_hours = now.saturating_sub(settings.last_check_time) / 3600;
 
-    assets
-        .iter()
-        .filter(|asset| {
-            let lower_name = asset.name.to_lowercase();
-            lower_name.ends_with(".exe")
-                && !lower_name.ends_with(".sig")
-                && !lower_name.ends_with(".exe.zip")
-                && (lower_name.contains("setup") || lower_name.contains("installer"))
-        })
-        .find(|asset| matches_arch(&asset.name.to_lowercase()))
-        .cloned()
-        .or_else(|| {
-            assets
-                .iter()
-                .find(|asset| {
-                    let lower_name = asset.name.to_lowercase();
-                    lower_name.ends_with(".exe")
-                        && !lower_name.ends_with(".sig")
-                        && !lower_name.ends_with(".exe.zip")
-                })
-                .cloned()
-        })
+    elapsed_hours >= interval_hours
 }
 
-#[cfg(target_os = "macos")]
-fn pick_release_asset(assets: &[GithubReleaseAsset]) -> Option<GithubReleaseAsset> {
-    assets
-        .iter()
-        .find(|asset| {
-            let lower_name = asset.name.to_lowercase();
-            (lower_name.ends_with(".app.tar.gz") || lower_name.ends_with(".dmg"))
-                && !lower_name.ends_with(".sig")
-        })
-        .cloned()
-}
+async fn check_updater_json(client: &reqwest::Client) -> Result<GithubUpdateInfo, AppError> {
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let mut last_error: Option<String> = None;
 
-#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
-fn pick_release_asset(assets: &[GithubReleaseAsset]) -> Option<GithubReleaseAsset> {
-    assets
-        .iter()
-        .find(|asset| {
-            let lower_name = asset.name.to_lowercase();
-            (lower_name.ends_with(".appimage")
-                || lower_name.ends_with(".deb")
-                || lower_name.ends_with(".rpm"))
-                && !lower_name.ends_with(".sig")
-        })
-        .cloned()
-}
+    for endpoint in UPDATER_JSON_ENDPOINTS {
+        let response = match client.get(*endpoint).send().await {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = Some(format!("{endpoint}: {error}"));
+                continue;
+            }
+        };
 
-#[cfg(target_os = "windows")]
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|ch| match ch {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            _ => ch,
-        })
-        .collect()
+        if !response.status().is_success() {
+            last_error = Some(format!("{endpoint}: HTTP {}", response.status()));
+            continue;
+        }
+
+        let updater = match response.json::<UpdaterJsonResponse>().await {
+            Ok(updater) => updater,
+            Err(error) => {
+                last_error = Some(format!("{endpoint}: 解析 updater.json 失败: {error}"));
+                continue;
+            }
+        };
+
+        let latest_version = normalize_version(&updater.version).to_string();
+        let has_update = compare_versions(&current_version, &latest_version) == Ordering::Less;
+
+        return Ok(GithubUpdateInfo {
+            current_version,
+            latest_version,
+            available: has_update,
+            auto_update_ready: true,
+            release_url: GITHUB_LATEST_RELEASE_PAGE.to_string(),
+            body: updater.notes,
+            source: Some((*endpoint).to_string()),
+        });
+    }
+
+    Err(AppError::Unknown(last_error.unwrap_or_else(|| {
+        "所有 updater.json 更新源都不可用".to_string()
+    })))
 }
 
 /// 获取今日统计
@@ -441,6 +487,65 @@ pub async fn save_config(
 
     log::info!("配置已保存");
     Ok(())
+}
+
+/// 获取更新检查设置
+#[tauri::command]
+pub async fn get_update_settings(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<UpdateSettings, AppError> {
+    let data_dir = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.data_dir.clone()
+    };
+
+    load_update_settings_from_dir(&data_dir)
+}
+
+/// 保存更新检查设置
+#[tauri::command]
+pub async fn save_update_settings(
+    settings: UpdateSettings,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let data_dir = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.data_dir.clone()
+    };
+
+    save_update_settings_to_dir(&data_dir, &settings)
+}
+
+/// 判断当前是否应自动检查更新
+#[tauri::command]
+pub async fn should_check_updates(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<bool, AppError> {
+    let data_dir = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.data_dir.clone()
+    };
+    let settings = load_update_settings_from_dir(&data_dir)?;
+
+    Ok(should_check_for_updates(&settings))
+}
+
+/// 更新时间检查时间戳
+#[tauri::command]
+pub async fn update_last_check_time(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let data_dir = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.data_dir.clone()
+    };
+    let mut settings = load_update_settings_from_dir(&data_dir)?;
+    settings.last_check_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    save_update_settings_to_dir(&data_dir, &settings)
 }
 
 /// 测试 AI 模型连接
@@ -848,18 +953,21 @@ pub async fn get_data_dir(state: State<'_, Arc<Mutex<AppState>>>) -> Result<Stri
     Ok(state.data_dir.to_string_lossy().to_string())
 }
 
-/// 基于 GitHub Release 检查更新。
-/// 当 Tauri updater 依赖的 latest.json 缺失或暂时不可用时，前端会回退到这里。
+/// 基于 updater.json 优先检查更新；若自动更新元数据暂未就绪，则回退到 GitHub Release API。
 #[tauri::command]
 pub async fn check_github_update() -> Result<GithubUpdateInfo, AppError> {
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
-
     let client = reqwest::Client::builder()
+        .user_agent("WorkReview-Updater")
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| AppError::Unknown(format!("创建更新检查客户端失败: {e}")))?;
 
+    if let Ok(update_info) = check_updater_json(&client).await {
+        return Ok(update_info);
+    }
+
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
     let release = client
         .get(GITHUB_LATEST_RELEASE_API)
         .header(reqwest::header::USER_AGENT, "WorkReview-Updater")
@@ -878,23 +986,21 @@ pub async fn check_github_update() -> Result<GithubUpdateInfo, AppError> {
             current_version,
             latest_version,
             available: false,
-            asset_name: None,
-            download_url: None,
+            auto_update_ready: false,
+            release_url: release.html_url,
             body: release.body,
+            source: Some("github-release-api".to_string()),
         });
     }
-
-    let asset = pick_release_asset(&release.assets).ok_or_else(|| {
-        AppError::Unknown("发现了新版本，但没有找到当前平台可直接安装的更新包".to_string())
-    })?;
 
     Ok(GithubUpdateInfo {
         current_version,
         latest_version,
         available: true,
-        asset_name: Some(asset.name),
-        download_url: Some(asset.browser_download_url),
+        auto_update_ready: false,
+        release_url: release.html_url,
         body: release.body,
+        source: Some("github-release-api".to_string()),
     })
 }
 
@@ -938,61 +1044,6 @@ pub async fn open_data_dir(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(),
     }
 
     Ok(())
-}
-
-/// GitHub Release 后备自动更新。
-/// 目前主要用于 Windows：下载 setup.exe 后静默安装并替换旧版本。
-#[tauri::command]
-pub async fn download_and_install_github_update(
-    download_url: String,
-    asset_name: String,
-) -> Result<(), AppError> {
-    #[cfg(target_os = "windows")]
-    {
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(15 * 60))
-            .connect_timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|e| AppError::Unknown(format!("创建下载客户端失败: {e}")))?;
-
-        let response = client
-            .get(&download_url)
-            .header(reqwest::header::USER_AGENT, "WorkReview-Updater")
-            .send()
-            .await?
-            .error_for_status()?;
-
-        let bytes = response.bytes().await?;
-        let temp_dir = std::env::temp_dir().join("workreview-updates");
-        std::fs::create_dir_all(&temp_dir)
-            .map_err(|e| AppError::Unknown(format!("创建更新临时目录失败: {e}")))?;
-
-        let file_name = format!(
-            "{}-{}",
-            chrono::Utc::now().timestamp(),
-            sanitize_filename(&asset_name)
-        );
-        let installer_path = temp_dir.join(file_name);
-
-        std::fs::write(&installer_path, &bytes)
-            .map_err(|e| AppError::Unknown(format!("写入更新安装包失败: {e}")))?;
-
-        std::process::Command::new(&installer_path)
-            .args(["/S", "/R", "/UPDATE"])
-            .spawn()
-            .map_err(|e| AppError::Unknown(format!("启动更新安装程序失败: {e}")))?;
-
-        std::process::exit(0);
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = download_url;
-        let _ = asset_name;
-        Err(AppError::Unknown(
-            "GitHub 后备自动更新当前仅对 Windows 安装包启用".to_string(),
-        ))
-    }
 }
 
 /// 获取截图缩略图

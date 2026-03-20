@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { showToast } from '$lib/stores/toast.js';
 
   export let config;
 
@@ -24,7 +25,7 @@
     if (!file) return;
     if (!file.type.startsWith('image/')) return;
     if (file.size > 10 * 1024 * 1024) {
-      alert('图片大小不能超过 10MB');
+      showToast('图片大小不能超过 10MB', 'warning');
       return;
     }
 
@@ -41,7 +42,7 @@
         dispatchBgEvent(imageUrl);
       } catch (e) {
         console.error('上传背景图失败:', e);
-        alert('上传失败: ' + e);
+        showToast('上传失败: ' + e, 'error');
       } finally {
         bgUploading = false;
       }
@@ -57,6 +58,7 @@
       dispatchBgEvent(null);
     } catch (e) {
       console.error('清除背景图失败:', e);
+      showToast('清除背景图失败: ' + e, 'error');
     }
   }
 

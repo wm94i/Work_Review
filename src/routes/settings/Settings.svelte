@@ -1,7 +1,8 @@
 <script>
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { cache } from '../../lib/stores/cache.js';
+  import { showToast } from '../../lib/stores/toast.js';
 
   import SettingsGeneral from './components/SettingsGeneral.svelte';
   import SettingsAI from './components/SettingsAI.svelte';
@@ -36,9 +37,16 @@
     loading = true;
     error = null;
     try {
-      config = await invoke('get_config');
-      providers = await invoke('get_ai_providers');
-      storageStats = await invoke('get_storage_stats');
+      const [loadedConfig, loadedProviders, loadedStorageStats] = await Promise.all([
+        invoke('get_config'),
+        invoke('get_ai_providers'),
+        invoke('get_storage_stats'),
+      ]);
+
+      config = loadedConfig;
+      cache.setConfig(config);
+      providers = loadedProviders;
+      storageStats = loadedStorageStats;
 
       // 确保对象存在
       if (!config.ai_provider) {
@@ -103,8 +111,7 @@
       cache.setConfig(config);
       
       if (fallbackWarning) {
-        // 使用弹窗提醒用户自动降级，避免覆盖整个面板的加载错误状态
-        setTimeout(() => alert("AI 模型尚未通过测试，日报生成模式已自动重置并保存为 [基础模板]"), 100);
+        showToast('AI 模型尚未通过测试，日报模式已自动重置为基础模板', 'warning');
       }
       
       setTimeout(() => success = false, 3000);

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import Router from 'svelte-spa-router';
   import Sidebar from './lib/components/Sidebar.svelte';
+  import Toast from './lib/components/Toast.svelte';
   import Overview from './routes/Overview.svelte';
   import Timeline from './routes/timeline/Timeline.svelte';
   import Summary from './routes/timeline/Summary.svelte';
@@ -12,6 +13,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { cache, getLocalDate } from './lib/stores/cache.js';
+  import { runUpdateFlow } from './lib/utils/updater.js';
 
   const appWindow = getCurrentWebviewWindow();
 
@@ -75,6 +77,7 @@
   let backgroundImage = null;
   let backgroundOpacity = 0.25;
   let backgroundBlur = 1;
+  let runtimeConfig = null;
 
   function detectSystemTheme() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -99,6 +102,7 @@
       const config = await invoke('get_config');
       config.theme = newTheme;
       await invoke('save_config', { config });
+      cache.setConfig(config);
     } catch (e) {
       console.error('保存主题配置失败:', e);
     }
@@ -145,11 +149,14 @@
     let config;
     try {
       config = await invoke('get_config');
+      runtimeConfig = config;
+      cache.setConfig(config);
       applyTheme(config.theme || 'system');
     } catch (e) {
       console.error('加载配置失败:', e);
       applyTheme('system');
       config = { work_end_hour: 18 };
+      runtimeConfig = config;
     }
 
     // 加载背景图
@@ -163,8 +170,19 @@
       console.error('获取录制状态失败:', e);
     }
 
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleSystemThemeChange = () => {
       if (theme === 'system') applyTheme('system');
+    };
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+
+    const unsubscribeCache = cache.subscribe((state) => {
+      if (!state.config) return;
+      runtimeConfig = state.config;
+
+      if (state.config.theme && state.config.theme !== theme) {
+        applyTheme(state.config.theme);
+      }
     });
 
     // 监听背景图更新事件（来自设置页，实时预览）
@@ -173,6 +191,23 @@
 
     // 启动预加载
     preloadApp();
+
+    // 启动后延迟执行一次自动更新检查，避免阻塞首屏渲染
+    const autoUpdateTimer = setTimeout(async () => {
+      try {
+        const shouldCheck = await invoke('should_check_updates');
+        if (!shouldCheck) return;
+
+        await invoke('update_last_check_time');
+        await runUpdateFlow({
+          silentWhenUpToDate: true,
+          confirmBeforeDownload: true,
+          onStatusChange: () => {},
+        });
+      } catch (e) {
+        console.warn('自动检查更新失败:', e);
+      }
+    }, 2000);
 
     // 日报自动生成检测：每分钟检查一次
     let lastAutoGenDate = null;  // 防止同一天重复触发
@@ -183,8 +218,8 @@
       const today = getLocalDate();
 
       // 检查是否达到工作结束时间
-      const workEndHour = config?.work_end_hour ?? 18;
-      const workEndMinute = config?.work_end_minute ?? 0;
+      const workEndHour = runtimeConfig?.work_end_hour ?? 18;
+      const workEndMinute = runtimeConfig?.work_end_minute ?? 0;
 
       // 条件：当前小时等于工作结束时间，当前分钟 >= 结束分钟，且今天未自动生成过
       if (currentHour === workEndHour && currentMinute >= workEndMinute && lastAutoGenDate !== today) {
@@ -194,7 +229,7 @@
           if (!existingReport) {
             console.log('工作结束时间到达，自动生成日报...');
             await invoke('generate_report', { date: today, force: false });
-            cache.invalidate('report');
+            cache.invalidate('report', today);
             lastAutoGenDate = today;
             console.log('日报自动生成完成');
           } else {
@@ -221,7 +256,10 @@
 
     return () => {
       unlisten();
+      unsubscribeCache();
+      clearTimeout(autoUpdateTimer);
       clearInterval(autoReportTimer);
+      mediaQuery.removeEventListener('change', handleSystemThemeChange);
       window.removeEventListener('background-changed', handleBgChange);
     };
   });
@@ -308,4 +346,6 @@
       <Router {routes} />
     </main>
   </div>
+
+  <Toast />
 </div>

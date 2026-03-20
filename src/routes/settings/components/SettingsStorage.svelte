@@ -1,23 +1,15 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { ask } from '@tauri-apps/plugin-dialog';
   import { cache } from '../../../lib/stores/cache.js';
+  import { showToast } from '$lib/stores/toast.js';
   
   export let config;
   export let storageStats = null;
   
   const dispatch = createEventDispatcher();
   let isClearing = false;
-  let toastMessage = '';
-  let toastType = 'success';
-  let toastVisible = false;
-
-  function showToast(message, type = 'success') {
-    toastMessage = message;
-    toastType = type;
-    toastVisible = true;
-    setTimeout(() => { toastVisible = false; }, 3000);
-  }
 
   function clearCache() {
     cache.clear();
@@ -26,7 +18,12 @@
   }
 
   async function clearOldData() {
-    if (!confirm('确认删除今天之前的所有活动记录和截图？此操作不可恢复！')) {
+    const confirmed = await ask('确认删除今天之前的所有活动记录和截图？此操作不可恢复！', {
+      title: '确认清理历史数据',
+      kind: 'warning',
+    });
+
+    if (!confirmed) {
       return;
     }
     
@@ -190,21 +187,4 @@
     </div>
   </div>
 </div>
-{/if}
-
-<!-- Toast -->
-{#if toastVisible}
-  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fadeIn">
-    <div class="px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2
-      {toastType === 'error' 
-        ? 'bg-red-600 text-white' 
-        : 'bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-800'}">
-      {#if toastType === 'error'}
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-      {:else}
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-      {/if}
-      {toastMessage}
-    </div>
-  </div>
 {/if}

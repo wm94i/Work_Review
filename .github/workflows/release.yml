@@ -6,9 +6,9 @@ on:
       - 'v*'
 
 jobs:
-  release:
+  build-tauri:
     permissions:
-      contents: write
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -42,24 +42,120 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      # Windows 特定依赖
-      - name: Install Windows dependencies
-        if: matrix.platform == 'windows-latest'
-        run: |
-          echo "Windows build environment ready"
+      - name: Build application
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- ${{ matrix.args }}
 
-      - name: Extract changelog
-        id: changelog
+      - name: Rename macOS updater assets
+        if: startsWith(matrix.platform, 'macos')
         shell: bash
         run: |
-          # 从 CHANGELOG.md 提取当前 tag 对应版本的更新内容
+          set -euo pipefail
+
+          if [[ "${{ matrix.target }}" == "aarch64-apple-darwin" ]]; then
+            ARCH_SUFFIX="aarch64"
+          else
+            ARCH_SUFFIX="x64"
+          fi
+
+          find src-tauri/target -type f -path "*/release/bundle/macos/*.app.tar.gz" | while read -r file; do
+            dir="$(dirname "$file")"
+            base="$(basename "$file" ".app.tar.gz")"
+            renamed="${dir}/${base}_${ARCH_SUFFIX}.app.tar.gz"
+            mv "$file" "$renamed"
+
+            if [[ -f "${file}.sig" ]]; then
+              mv "${file}.sig" "${renamed}.sig"
+            fi
+          done
+
+      - name: Verify required artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_file() {
+            local pattern="$1"
+            local label="$2"
+            local match
+            match="$(find src-tauri/target -type f -path "$pattern" | sort | head -n 1 || true)"
+            if [[ -z "$match" ]]; then
+              echo "缺少 ${label}: ${pattern}" >&2
+              exit 1
+            fi
+            echo "${label}: ${match}"
+          }
+
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              require_file "*/release/bundle/macos/*_aarch64.app.tar.gz" "macOS aarch64 自动更新包"
+              require_file "*/release/bundle/macos/*_aarch64.app.tar.gz.sig" "macOS aarch64 自动更新签名"
+              require_file "*/release/bundle/dmg/*.dmg" "macOS aarch64 DMG"
+              require_file "*/release/bundle/dmg/*.sig" "macOS aarch64 DMG 签名"
+              ;;
+            x86_64-apple-darwin)
+              require_file "*/release/bundle/macos/*_x64.app.tar.gz" "macOS x64 自动更新包"
+              require_file "*/release/bundle/macos/*_x64.app.tar.gz.sig" "macOS x64 自动更新签名"
+              require_file "*/release/bundle/dmg/*.dmg" "macOS x64 DMG"
+              require_file "*/release/bundle/dmg/*.sig" "macOS x64 DMG 签名"
+              ;;
+            x86_64-pc-windows-msvc)
+              require_file "*/release/bundle/nsis/*.exe" "Windows 安装包"
+              require_file "*/release/bundle/nsis/*.sig" "Windows 安装包签名"
+              ;;
+          esac
+
+          require_file "*/release/bundle/updater/*.json" "updater 元数据"
+
+      - name: Upload updater json
+        uses: actions/upload-artifact@v4
+        with:
+          name: updater-json-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: src-tauri/target/**/release/bundle/updater/*.json
+          if-no-files-found: error
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets-${{ matrix.platform }}-${{ strategy.job-index }}
+          path: |
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/dmg/*.sig
+            src-tauri/target/**/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/release/bundle/macos/*.app.tar.gz.sig
+            src-tauri/target/**/release/bundle/nsis/*.exe
+            src-tauri/target/**/release/bundle/nsis/*.sig
+          if-no-files-found: error
+
+  publish-release:
+    needs: build-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          pattern: "{release-assets-*,updater-json-*}"
+          merge-multiple: true
+
+      - name: Extract changelog
+        shell: bash
+        run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          # 提取两个 ## 标题之间的内容（当前版本的 changelog）
           BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} /^## \[/{if(found) exit} found{print}" CHANGELOG.md)
-          if [ -z "$BODY" ]; then
+
+          if [[ -z "$BODY" ]]; then
             BODY="版本 ${VERSION} 更新"
           fi
-          # 追加 macOS 安装提示
+
           BODY="${BODY}
 
           ### macOS 安装说明
@@ -67,22 +163,97 @@ jobs:
           \`\`\`bash
           sudo xattr -rd com.apple.quarantine /Applications/Work\\ Review.app
           \`\`\`"
-          # 写入多行输出
-          echo "RELEASE_BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Build and release
-        uses: tauri-apps/tauri-action@v0.5
+          printf '%s\n' "$BODY" > release_notes.md
+
+      - name: Build updater.json from signatures
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VERSION: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          DOWNLOAD_BASE="https://github.com/${REPO}/releases/download/${VERSION}"
+          VER="${VERSION#v}"
+          NOTES="$(cat release_notes.md)"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          MAC_AARCH64_FILE="$(find all-artifacts -type f -name '*_aarch64.app.tar.gz' | sort | head -n 1 || true)"
+          MAC_X64_FILE="$(find all-artifacts -type f -name '*_x64.app.tar.gz' | sort | head -n 1 || true)"
+          WINDOWS_FILE="$(find all-artifacts -type f \( -name '*setup.exe' -o -name '*installer.exe' \) ! -name '*.sig' | sort | head -n 1 || true)"
+
+          require_asset() {
+            local asset_file="$1"
+            local signature_file="$2"
+            local label="$3"
+
+            if [[ -z "$asset_file" || ! -f "$asset_file" ]]; then
+              echo "缺少 ${label} 产物" >&2
+              exit 1
+            fi
+
+            if [[ ! -f "$signature_file" ]]; then
+              echo "缺少 ${label} 签名: ${signature_file}" >&2
+              exit 1
+            fi
+
+            echo "${label}: ${asset_file}"
+          }
+
+          require_asset "$MAC_AARCH64_FILE" "${MAC_AARCH64_FILE}.sig" "darwin-aarch64"
+          require_asset "$MAC_X64_FILE" "${MAC_X64_FILE}.sig" "darwin-x86_64"
+          require_asset "$WINDOWS_FILE" "${WINDOWS_FILE}.sig" "windows-x86_64"
+
+          json="$(jq -n \
+            --arg version "$VER" \
+            --arg notes "$NOTES" \
+            --arg pub_date "$PUB_DATE" \
+            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: {}}')"
+
+          add_platform() {
+            local platform_key="$1"
+            local asset_file="$2"
+            local signature_file="$3"
+
+            if [[ -z "$asset_file" || ! -f "$asset_file" || ! -f "$signature_file" ]]; then
+              echo "skip ${platform_key}"
+              return
+            fi
+
+            local signature
+            signature="$(tr -d '\r\n' < "$signature_file")"
+            local asset_name
+            asset_name="$(basename "$asset_file")"
+
+            json="$(jq \
+              --arg key "$platform_key" \
+              --arg url "${DOWNLOAD_BASE}/${asset_name}" \
+              --arg signature "$signature" \
+              '.platforms[$key] = { url: $url, signature: $signature }' \
+              <<<"$json")"
+          }
+
+          add_platform "darwin-aarch64" "$MAC_AARCH64_FILE" "${MAC_AARCH64_FILE}.sig"
+          add_platform "darwin-x86_64" "$MAC_X64_FILE" "${MAC_X64_FILE}.sig"
+          add_platform "windows-x86_64" "$WINDOWS_FILE" "${WINDOWS_FILE}.sig"
+
+          if [[ "$(jq '.platforms | length' <<<"$json")" -ne 3 ]]; then
+            echo "自动更新平台数量异常，期望 3 个，实际为 $(jq '.platforms | length' <<<"$json")" >&2
+            exit 1
+          fi
+
+          printf '%s\n' "$json" > updater.json
+          cat updater.json
+
+      - name: Create or update GitHub Release
+        uses: ncipollo/release-action@v1
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Work Review ${{ github.ref_name }}'
-          releaseBody: ${{ steps.changelog.outputs.RELEASE_BODY }}
-          releaseDraft: false
-          prerelease: false
-          updaterJsonPreferNsis: true
-          args: ${{ matrix.args }}
+          allowUpdates: true
+          name: "Work Review ${{ github.ref_name }}"
+          bodyFile: release_notes.md
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifacts: "all-artifacts/**/*,updater.json"
+          artifactErrorsFailBuild: false
+          replacesArtifacts: true
+          makeLatest: legacy

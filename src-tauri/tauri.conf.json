@@ -7,6 +7,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis",
       "dmg"
@@ -48,15 +49,15 @@
   },
   "productName": "Work Review",
   "mainBinaryName": "WorkReview",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "identifier": "com.workreview.app",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM5MDVEQkE5OTQ0N0M2QkUKUldTK3hrZVVxZHNGeWQ0V1c2VEhEU3JmY1E4WWdrL1FwOTExa2dZYU9IZ1lvOWQ1aU44ZlFkYXoK",
       "endpoints": [
-        "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/latest.json",
-        "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/latest.json",
-        "https://github.com/wm94i/Work_Review/releases/latest/download/latest.json"
+        "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+        "https://ghp.ci/https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+        "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json"
       ],
       "windows": {
         "installMode": "quiet"
