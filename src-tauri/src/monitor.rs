@@ -1,5 +1,5 @@
 use crate::error::Result;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::error::AppError;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -312,7 +312,7 @@ pub fn get_active_window() -> Result<ActiveWindow> {
         if hwnd.is_null() {
             // null HWND 出现在睡眠/现代待机唤醒、UAC弹窗、窗口切换瞬间等场景
             // 此时没有真实的前台窗口，不应伪造应用名，由调用方决定如何处理
-            return Err(anyhow::anyhow!("no foreground window"));
+            return Err(AppError::Unknown("没有前台窗口".to_string()));
         }
 
         // 获取窗口标题

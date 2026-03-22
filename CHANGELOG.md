@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-03-22
+
+### 新增
+- 工作助手智能问答升级：新增工作智能分析模块，支持 Session 聚合、意图识别、周报复盘和待办提取
+- 时间范围自动提取：问"今天做了什么""上周总结""最近3天"等自然语言时，自动识别并限定检索范围，不再搜全部历史
+- 问答页面重构为气泡式对话 UI，支持多轮连续对话
+- 新增模型选择器，支持在"基础模板"和"AI 增强"之间切换
+- 新增确认对话框组件和助手状态管理
+
+### 修复
+- 修复"基础模板"模式误走 AI 的问题：选择基础模板时不再 fallback 到默认模型，直接使用结构化模板回答
+- 修复 Ollama 丢失 system prompt 的问题：将 `/api/generate` 改为 `/api/chat`，正确传递系统提示词
+- 修复历史消息关键词污染当前问题工具检测的问题：改为两阶段检测，当前问题优先匹配，仅在无命中时才参考历史上下文
+
+### 优化
+- Fallback 答案不再一刀切 dump 全部数据，而是根据触发的工具类型（记忆/待办/Session/复盘）生成对应结构的回答
+- AI prompt 优化：明确告知模型数据时间范围、精简历史上下文（最近4轮，每条截断200字）、强化"直接回答问题"指令
+- CI/CD release workflow 优化
+
 ## [1.0.16] - 2026-03-20
 
 ### 修复
