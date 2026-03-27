@@ -153,6 +153,40 @@ fn update_source_label(endpoint: &str) -> String {
         .unwrap_or_else(|| endpoint.to_string())
 }
 
+fn build_versioned_updater_endpoint(endpoint: &str, version: &str) -> Option<String> {
+    let normalized_version = normalize_version(version);
+    if normalized_version.is_empty() {
+        return None;
+    }
+
+    endpoint.contains("releases/latest/download/").then(|| {
+        endpoint.replacen(
+            "releases/latest/download/",
+            &format!("releases/download/v{normalized_version}/"),
+            1,
+        )
+    })
+}
+
+fn build_updater_manifest_candidates(
+    endpoint: &str,
+    expected_version: Option<&str>,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+
+    if let Some(expected_version) = expected_version {
+        if let Some(versioned_endpoint) =
+            build_versioned_updater_endpoint(endpoint, expected_version)
+        {
+            candidates.push(versioned_endpoint);
+        }
+    }
+
+    candidates.push(endpoint.to_string());
+    candidates.dedup();
+    candidates
+}
+
 fn emit_update_status(
     app: &AppHandle,
     stage: &str,
@@ -2710,33 +2744,58 @@ pub async fn download_and_install_github_update(
             None,
         );
 
-        let endpoint_url = Url::parse(endpoint)
-            .map_err(|e| AppError::Unknown(format!("解析更新源失败 ({endpoint}): {e}")))?;
+        let manifest_candidates =
+            build_updater_manifest_candidates(endpoint, expected_version.as_deref());
 
-        let updater = match app
-            .updater_builder()
-            .endpoints(vec![endpoint_url])
-            .map_err(|e| AppError::Unknown(format!("配置更新源失败 ({source_label}): {e}")))?
-            .timeout(Duration::from_secs(20))
-            .build()
-        {
-            Ok(updater) => updater,
-            Err(error) => {
-                failures.push(format!("{source_label}: 构建更新器失败: {error}"));
-                continue;
+        let mut update = None;
+        let mut last_check_error = None;
+
+        for manifest_endpoint in manifest_candidates {
+            let endpoint_url = Url::parse(&manifest_endpoint).map_err(|e| {
+                AppError::Unknown(format!("解析更新源失败 ({manifest_endpoint}): {e}"))
+            })?;
+
+            let updater = match app
+                .updater_builder()
+                .endpoints(vec![endpoint_url])
+                .map_err(|e| AppError::Unknown(format!("配置更新源失败 ({source_label}): {e}")))?
+                .timeout(Duration::from_secs(20))
+                .configure_client(|client| {
+                    client
+                        .connect_timeout(Duration::from_secs(10))
+                        .user_agent("WorkReview-Updater")
+                })
+                .build()
+            {
+                Ok(updater) => updater,
+                Err(error) => {
+                    last_check_error = Some(format!("{source_label}: 构建更新器失败: {error}"));
+                    continue;
+                }
+            };
+
+            match updater.check().await {
+                Ok(Some(found_update)) => {
+                    update = Some(found_update);
+                    last_check_error = None;
+                    break;
+                }
+                Ok(None) => {
+                    last_check_error = Some(format!("{source_label}: 未返回可安装的更新包"));
+                }
+                Err(error) => {
+                    last_check_error = Some(format!("{source_label}: 检查更新失败: {error}"));
+                }
             }
-        };
+        }
 
-        let update = match updater.check().await {
-            Ok(Some(update)) => update,
-            Ok(None) => {
+        let Some(update) = update else {
+            if let Some(error) = last_check_error {
+                failures.push(error);
+            } else {
                 failures.push(format!("{source_label}: 未返回可安装的更新包"));
-                continue;
             }
-            Err(error) => {
-                failures.push(format!("{source_label}: 检查更新失败: {error}"));
-                continue;
-            }
+            continue;
         };
 
         if let Some(expected) = expected_version.as_deref() {
@@ -4288,7 +4347,10 @@ async fn get_app_icon_impl(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_windows_icon_cache_key, merge_windows_icon_lookup_candidates};
+    use super::{
+        build_updater_manifest_candidates, build_windows_icon_cache_key,
+        merge_windows_icon_lookup_candidates,
+    };
 
     #[test]
     fn windows图标候选应优先真实路径并去重() {
@@ -4322,6 +4384,42 @@ mod tests {
         assert_ne!(portable_key, installed_key);
         assert!(portable_key.starts_with("VS_Code_"));
         assert!(installed_key.starts_with("VS_Code_"));
+    }
+
+    #[test]
+    fn 更新清单候选应优先显式版本地址再回退latest地址() {
+        let candidates = build_updater_manifest_candidates(
+            "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json",
+            Some("1.0.24"),
+        );
+
+        assert_eq!(
+            candidates,
+            vec![
+                "https://github.com/wm94i/Work_Review/releases/download/v1.0.24/updater.json"
+                    .to_string(),
+                "https://github.com/wm94i/Work_Review/releases/latest/download/updater.json"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn 更新清单候选应保留代理前缀并规范化版本号() {
+        let candidates = build_updater_manifest_candidates(
+            "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json",
+            Some("v1.0.24"),
+        );
+
+        assert_eq!(
+            candidates,
+            vec![
+                "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/download/v1.0.24/updater-ghproxy.json"
+                    .to_string(),
+                "https://ghproxy.cn/https://github.com/wm94i/Work_Review/releases/latest/download/updater-ghproxy.json"
+                    .to_string(),
+            ]
+        );
     }
 }
 
