@@ -7,6 +7,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+#[cfg(target_os = "windows")]
+use winapi::shared::windef::RECT;
 use std::path::{Path, PathBuf};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::process::{Command, Output, Stdio};
@@ -772,7 +774,7 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
     use winapi::um::psapi::GetModuleBaseNameW;
     use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
     use winapi::um::winuser::{
-        GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, RECT,
+        GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
     };
     // PROCESS_QUERY_LIMITED_INFORMATION 是 Vista+ 专为低权限场景设计的标志
     // 无需 PROCESS_VM_READ，对 UAC 保护进程、Store 应用等成功率远高于完整权限
