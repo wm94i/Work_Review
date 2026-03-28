@@ -221,6 +221,15 @@ pub struct AppPrivacyRule {
     pub level: PrivacyLevel,
 }
 
+/// 应用分类规则
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AppCategoryRule {
+    /// 应用名称
+    pub app_name: String,
+    /// 目标分类
+    pub category: String,
+}
+
 /// 隐私配置
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PrivacyConfig {
@@ -354,6 +363,9 @@ pub struct AppConfig {
     pub vision_model: ModelConfig,
     /// 隐私配置
     pub privacy: PrivacyConfig,
+    /// 应用分类覆盖规则
+    #[serde(default)]
+    pub app_category_rules: Vec<AppCategoryRule>,
     /// 存储配置
     #[serde(default)]
     pub storage: StorageConfig,
@@ -388,6 +400,9 @@ pub struct AppConfig {
     /// 隐藏 Dock 图标（仅保留菜单栏）
     #[serde(default)]
     pub hide_dock_icon: bool,
+    /// 轻量模式：关闭主界面时释放主 Webview，仅保留后台录制与托盘
+    #[serde(default)]
+    pub lightweight_mode: bool,
     /// 是否启用桌面化身窗口
     #[serde(default)]
     pub avatar_enabled: bool,
@@ -445,6 +460,7 @@ impl Default for AppConfig {
             text_model_profiles: Vec::new(),
             vision_model: ModelConfig::default_vision(),
             privacy: PrivacyConfig::default(),
+            app_category_rules: Vec::new(),
             storage: StorageConfig::default(),
             auto_start: false,
             theme: "system".to_string(),
@@ -459,6 +475,7 @@ impl Default for AppConfig {
             openai_api_key: None,
             openai_model: "gpt-4o-mini".to_string(),
             hide_dock_icon: false,
+            lightweight_mode: false,
             avatar_enabled: false,
             avatar_scale: default_avatar_scale(),
             avatar_opacity: default_avatar_opacity(),
@@ -476,6 +493,7 @@ impl AppConfig {
     /// 规范化配置，兼容旧字段并补齐助手可用的文本模型档案
     pub fn normalize(&mut self) {
         self.migrate_legacy_config();
+        normalize_app_category_rules(&mut self.app_category_rules);
         self.avatar_scale = normalize_avatar_scale(self.avatar_scale);
         self.avatar_opacity = normalize_avatar_opacity(self.avatar_opacity);
         self.sync_text_model_profiles();
@@ -617,6 +635,42 @@ fn default_connection_status() -> String {
     "untested".to_string()
 }
 
+fn normalize_category_key(value: &str) -> String {
+    match value.trim().to_lowercase().as_str() {
+        "development" | "browser" | "communication" | "office" | "design" | "entertainment"
+        | "other" => value.trim().to_lowercase(),
+        _ => "other".to_string(),
+    }
+}
+
+fn normalize_app_category_rules(rules: &mut Vec<AppCategoryRule>) {
+    use std::collections::HashSet;
+
+    let mut normalized_rules = Vec::new();
+    let mut seen = HashSet::new();
+
+    for rule in rules.iter().rev() {
+        let app_name = rule.app_name.trim();
+        if app_name.is_empty() {
+            continue;
+        }
+
+        let normalized_app_name = crate::monitor::normalize_display_app_name(app_name);
+        let dedupe_key = normalized_app_name.to_lowercase();
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+
+        normalized_rules.push(AppCategoryRule {
+            app_name: normalized_app_name,
+            category: normalize_category_key(&rule.category),
+        });
+    }
+
+    normalized_rules.reverse();
+    *rules = normalized_rules;
+}
+
 fn normalize_avatar_scale(value: f64) -> f64 {
     if !value.is_finite() {
         return default_avatar_scale();
@@ -636,8 +690,8 @@ fn normalize_avatar_opacity(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_avatar_opacity, default_avatar_scale, normalize_avatar_opacity,
-        normalize_avatar_scale, AppConfig,
+        default_avatar_opacity, default_avatar_scale, normalize_app_category_rules,
+        normalize_avatar_opacity, normalize_avatar_scale, AppCategoryRule, AppConfig,
     };
 
     #[test]
@@ -665,6 +719,13 @@ mod tests {
     }
 
     #[test]
+    fn 轻量模式默认应关闭() {
+        let config = AppConfig::default();
+
+        assert!(!config.lightweight_mode);
+    }
+
+    #[test]
     fn 桌宠缩放应被钳制在允许范围内() {
         assert_eq!(normalize_avatar_scale(0.3), 0.7);
         assert_eq!(normalize_avatar_scale(2.0), 1.3);
@@ -676,5 +737,34 @@ mod tests {
         assert_eq!(normalize_avatar_opacity(0.1), 0.45);
         assert_eq!(normalize_avatar_opacity(1.5), 1.0);
         assert_eq!(normalize_avatar_opacity(f64::NAN), 0.82);
+    }
+
+    #[test]
+    fn 应用分类规则应去重并规范化分类值() {
+        let mut rules = vec![
+            AppCategoryRule {
+                app_name: " firefox ".to_string(),
+                category: "browser".to_string(),
+            },
+            AppCategoryRule {
+                app_name: "Firefox".to_string(),
+                category: "office".to_string(),
+            },
+            AppCategoryRule {
+                app_name: "  ".to_string(),
+                category: "design".to_string(),
+            },
+            AppCategoryRule {
+                app_name: "MuMu".to_string(),
+                category: "unknown".to_string(),
+            },
+        ];
+
+        normalize_app_category_rules(&mut rules);
+
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].app_name, "Firefox");
+        assert_eq!(rules[0].category, "office");
+        assert_eq!(rules[1].category, "other");
     }
 }

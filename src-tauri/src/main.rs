@@ -34,15 +34,39 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use storage::StorageManager;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Position};
 
 // 全局 AppHandle，用于在 macOS Dock 点击时恢复窗口
 static APP_HANDLE: OnceCell<AppHandle> = OnceCell::new();
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_MENU_SHOW_ID: &str = "show";
+const TRAY_MENU_RECORDING_TOGGLE_ID: &str = "recording-toggle";
+const TRAY_MENU_LIGHTWEIGHT_MODE_ID: &str = "lightweight-mode";
+const TRAY_MENU_AVATAR_TOGGLE_ID: &str = "avatar-toggle";
+const TRAY_MENU_QUIT_ID: &str = "quit";
+pub(crate) const RECORDING_STATE_CHANGED_EVENT: &str = "recording-state-changed";
+pub(crate) const CONFIG_CHANGED_EVENT: &str = "config-changed";
+
+type AppMenuItem = MenuItem<tauri::Wry>;
+type AppCheckMenuItem = CheckMenuItem<tauri::Wry>;
+
+pub(crate) struct TrayMenuState {
+    recording_toggle: AppMenuItem,
+    lightweight_mode: AppCheckMenuItem,
+    avatar_toggle: AppCheckMenuItem,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RecordingStatePayload {
+    pub is_recording: bool,
+    pub is_paused: bool,
+}
 
 #[cfg(target_os = "windows")]
-fn build_windows_window_icon() -> Option<tauri::image::Image<'static>> {
+pub(crate) fn build_windows_window_icon() -> Option<tauri::image::Image<'static>> {
     match image::load_from_memory_with_format(
         include_bytes!("../icons/windows-icon.png"),
         image::ImageFormat::Png,
@@ -67,6 +91,213 @@ fn build_windows_window_icon() -> Option<tauri::image::Image<'static>> {
             None
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowCloseBehavior {
+    HideToTray,
+    CloseWindow,
+}
+
+fn main_window_close_behavior(lightweight_mode: bool) -> MainWindowCloseBehavior {
+    if lightweight_mode {
+        MainWindowCloseBehavior::CloseWindow
+    } else {
+        MainWindowCloseBehavior::HideToTray
+    }
+}
+
+fn effective_dock_visibility(
+    hide_dock_icon: bool,
+    lightweight_mode: bool,
+    has_main_window: bool,
+) -> bool {
+    !hide_dock_icon && (!lightweight_mode || has_main_window)
+}
+
+pub(crate) fn sync_effective_dock_visibility(app: &AppHandle) {
+    let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() else {
+        return;
+    };
+
+    let (hide_dock_icon, lightweight_mode) = {
+        let state = state.lock().unwrap_or_else(|e| e.into_inner());
+        (state.config.hide_dock_icon, state.config.lightweight_mode)
+    };
+    let has_main_window = app.get_webview_window(MAIN_WINDOW_LABEL).is_some();
+    let visible = effective_dock_visibility(hide_dock_icon, lightweight_mode, has_main_window);
+    commands::apply_dock_visibility(visible, false);
+}
+
+pub(crate) fn configure_main_window(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    if let Some(icon) = build_windows_window_icon() {
+        if let Err(e) = window.set_icon(icon) {
+            log::warn!("设置 Windows 主窗口图标失败，继续使用默认图标: {e}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::TitleBarStyle;
+
+        let _ = window.set_decorations(true);
+        let _ = window.set_title_bar_style(TitleBarStyle::Transparent);
+        configure_main_window_collection_behavior(window);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configure_main_window_collection_behavior(window: &tauri::WebviewWindow) {
+    use cocoa::appkit::{NSWindow, NSWindowCollectionBehavior};
+    use cocoa::base::id;
+
+    if let Ok(ns_window) = window.ns_window() {
+        unsafe {
+            let ns_window = ns_window as id;
+            let mut behavior = ns_window.collectionBehavior();
+            behavior |= NSWindowCollectionBehavior::NSWindowCollectionBehaviorMoveToActiveSpace;
+            ns_window.setCollectionBehavior_(behavior);
+        }
+    }
+}
+
+fn align_window_to_reference_monitor(
+    window: &tauri::WebviewWindow,
+    reference_window: Option<&tauri::WebviewWindow>,
+) {
+    let Some(reference_window) = reference_window else {
+        return;
+    };
+
+    let Ok(Some(reference_monitor)) = reference_window.current_monitor() else {
+        return;
+    };
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+
+    let work_area = reference_monitor.work_area();
+    let monitor_width = work_area.size.width as i32;
+    let monitor_height = work_area.size.height as i32;
+    let window_width = window_size.width as i32;
+    let window_height = window_size.height as i32;
+
+    let target_x = work_area.position.x + ((monitor_width - window_width).max(0) / 2);
+    let target_y = work_area.position.y + ((monitor_height - window_height).max(0) / 2);
+
+    let _ = window.set_position(Position::Physical(PhysicalPosition::new(
+        target_x, target_y,
+    )));
+}
+
+pub(crate) fn ensure_main_window(app: &AppHandle) -> Result<tauri::WebviewWindow, error::AppError> {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        return Ok(window);
+    }
+
+    let window_config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == MAIN_WINDOW_LABEL)
+        .or_else(|| app.config().app.windows.first())
+        .ok_or_else(|| error::AppError::Unknown("未找到主窗口配置".to_string()))?;
+
+    let window = tauri::WebviewWindowBuilder::from_config(app, window_config)
+        .map_err(|e| error::AppError::Unknown(format!("创建主窗口构建器失败: {e}")))?
+        .build()
+        .map_err(|e| error::AppError::Unknown(format!("重建主窗口失败: {e}")))?;
+
+    configure_main_window(&window);
+    Ok(window)
+}
+
+pub(crate) fn reveal_main_window(
+    app: &AppHandle,
+    source_window_label: Option<&str>,
+) -> Result<(), error::AppError> {
+    let window = ensure_main_window(app)?;
+    let reference_window = source_window_label.and_then(|label| app.get_webview_window(label));
+    align_window_to_reference_monitor(&window, reference_window.as_ref());
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+    sync_effective_dock_visibility(app);
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RecordingToggleAction {
+    Start,
+    Pause,
+    Resume,
+}
+
+fn tray_recording_toggle_action(is_recording: bool, is_paused: bool) -> RecordingToggleAction {
+    if !is_recording {
+        RecordingToggleAction::Start
+    } else if is_paused {
+        RecordingToggleAction::Resume
+    } else {
+        RecordingToggleAction::Pause
+    }
+}
+
+fn tray_recording_toggle_label(is_recording: bool, is_paused: bool) -> &'static str {
+    match tray_recording_toggle_action(is_recording, is_paused) {
+        RecordingToggleAction::Start => "开始录制",
+        RecordingToggleAction::Pause => "暂停录制",
+        RecordingToggleAction::Resume => "恢复录制",
+    }
+}
+
+pub(crate) fn refresh_tray_menu(app: &AppHandle) {
+    let Some(tray_menu) = app.try_state::<TrayMenuState>() else {
+        return;
+    };
+    let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() else {
+        return;
+    };
+
+    let (is_recording, is_paused, lightweight_mode, avatar_enabled) = {
+        let state = state.lock().unwrap_or_else(|e| e.into_inner());
+        (
+            state.is_recording,
+            state.is_paused,
+            state.config.lightweight_mode,
+            state.config.avatar_enabled,
+        )
+    };
+
+    let _ = tray_menu
+        .recording_toggle
+        .set_text(tray_recording_toggle_label(is_recording, is_paused));
+    let _ = tray_menu.lightweight_mode.set_checked(lightweight_mode);
+    let _ = tray_menu.avatar_toggle.set_checked(avatar_enabled);
+}
+
+pub(crate) fn emit_recording_state_changed(app: &AppHandle) {
+    let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() else {
+        return;
+    };
+
+    let payload = {
+        let state = state.lock().unwrap_or_else(|e| e.into_inner());
+        RecordingStatePayload {
+            is_recording: state.is_recording,
+            is_paused: state.is_paused,
+        }
+    };
+
+    let _ = app.emit(RECORDING_STATE_CHANGED_EVENT, payload);
+    refresh_tray_menu(app);
+}
+
+pub(crate) fn emit_config_changed(app: &AppHandle, config: &AppConfig) {
+    let _ = app.emit(CONFIG_CHANGED_EVENT, config);
+    refresh_tray_menu(app);
 }
 
 fn build_tray_icon(app: &tauri::App) -> tauri::image::Image<'static> {
@@ -115,9 +346,19 @@ pub struct AppState {
     pub avatar_generating_report: bool,
 }
 
+#[derive(Default)]
+pub(crate) struct AppLifecycleState {
+    suppress_next_exit: bool,
+    explicit_quit_requested: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 struct DataDirPreference {
     data_dir: String,
+}
+
+fn should_prevent_exit(suppress_next_exit: bool, explicit_quit_requested: bool) -> bool {
+    suppress_next_exit && !explicit_quit_requested
 }
 
 pub(crate) fn default_data_dir() -> PathBuf {
@@ -283,6 +524,22 @@ fn recover_recent_browser_url(
                 None
             }
         })
+}
+
+pub(crate) fn resolve_activity_classification(
+    config: &AppConfig,
+    app_name: &str,
+    window_title: &str,
+    browser_url: Option<&str>,
+) -> activity_classifier::ActivityClassification {
+    let base_category =
+        monitor::categorize_app_with_rules(&config.app_category_rules, app_name, window_title);
+    activity_classifier::classify_activity_with_base_category(
+        app_name,
+        window_title,
+        browser_url,
+        &base_category,
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -492,6 +749,11 @@ async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
             Err(_) => continue,
         };
 
+        let app_category_rules = {
+            let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+            state_guard.config.app_category_rules.clone()
+        };
+
         if should_skip_transient_window(&active_window) || should_skip_system_window(&active_window)
         {
             continue;
@@ -499,7 +761,8 @@ async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
 
         let input_idle = idle_detector.is_input_idle();
         let avatar_state = avatar_engine::apply_avatar_opacity(
-            avatar_engine::derive_avatar_state(
+            avatar_engine::derive_avatar_state_with_rules(
+                &app_category_rules,
                 &active_window.app_name,
                 &active_window.window_title,
                 active_window.browser_url.as_deref(),
@@ -571,7 +834,7 @@ async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
 
 /// 后台截屏任务
 /// 使用 Arc<Mutex<AppState>> 而非 tauri::State，因为 State 无法在 async move 块中手动构造
-async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::WebviewWindow) {
+async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
     // ===== 状态变量 =====
     let mut last_app_name: Option<String> = None;
     let mut last_app_window_title: Option<String> = None;
@@ -832,11 +1095,15 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                     active_window.app_name,
                     active_window.window_title
                 );
-                let classification = crate::activity_classifier::classify_activity(
-                    &active_window.app_name,
-                    &active_window.window_title,
-                    active_window.browser_url.as_deref(),
-                );
+                let classification = {
+                    let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::resolve_activity_classification(
+                        &state_guard.config,
+                        &active_window.app_name,
+                        &active_window.window_title,
+                        active_window.browser_url.as_deref(),
+                    )
+                };
                 let activity = database::Activity {
                     id: None,
                     timestamp: chrono::Local::now().timestamp(),
@@ -863,11 +1130,15 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                 }
             }
             PrivacyAction::Record => {
-                let classification = crate::activity_classifier::classify_activity(
-                    &active_window.app_name,
-                    &active_window.window_title,
-                    active_window.browser_url.as_deref(),
-                );
+                let classification = {
+                    let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::resolve_activity_classification(
+                        &state_guard.config,
+                        &active_window.app_name,
+                        &active_window.window_title,
+                        active_window.browser_url.as_deref(),
+                    )
+                };
                 let category = classification.base_category.clone();
                 let current_timestamp = chrono::Local::now().timestamp();
 
@@ -999,7 +1270,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                     // 截屏到内存，保存为临时文件供 OCR 使用
                     let screenshot_result = {
                         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                        state_guard.screenshot_service.capture()
+                        state_guard
+                            .screenshot_service
+                            .capture_for_window(Some(&active_window))
                     };
 
                     // ===== 空闲检测第二阶段：截图哈希确认 =====
@@ -1148,7 +1421,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                     // === 新建路径：正常截屏并保存 ===
                     let screenshot_result = {
                         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                        state_guard.screenshot_service.capture()
+                        state_guard
+                            .screenshot_service
+                            .capture_for_window(Some(&active_window))
                     };
 
                     match screenshot_result {
@@ -1275,7 +1550,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
 
         // 发送事件到前端
         if let Some(activity) = result {
-            let _ = window.emit("screenshot-taken", &activity);
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = window.emit("screenshot-taken", &activity);
+            }
         }
 
         // ===== 浮动窗口（PiP 画中画）检测 =====
@@ -1296,7 +1573,16 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                 continue;
             }
 
-            let ow_category = monitor::categorize_app(&ow.app_name, &ow.window_title);
+            let classification = {
+                let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                crate::resolve_activity_classification(
+                    &state_guard.config,
+                    &ow.app_name,
+                    &ow.window_title,
+                    ow.browser_url.as_deref(),
+                )
+            };
+            let ow_category = classification.base_category.clone();
             let current_ts = chrono::Local::now().timestamp();
             let ow_duration = poll_interval_ms.div_ceil(1000) as i64;
 
@@ -1348,11 +1634,6 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, window: tauri::
                     ow.window_title.clone()
                 };
 
-                let classification = crate::activity_classifier::classify_activity(
-                    &ow.app_name,
-                    &ow.window_title,
-                    ow.browser_url.as_deref(),
-                );
                 let activity = database::Activity {
                     id: None,
                     timestamp: current_ts,
@@ -1593,6 +1874,7 @@ async fn main() {
         ),
         avatar_generating_report: false,
     }));
+    let app_lifecycle_state = Arc::new(Mutex::new(AppLifecycleState::default()));
 
     // 构建 Tauri 应用
     tauri::Builder::default()
@@ -1608,50 +1890,53 @@ async fn main() {
         ))
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // 当用户尝试打开第二个实例时，将焦点给到现有窗口
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+            if let Err(e) = reveal_main_window(&app.clone(), None) {
+                log::warn!("恢复主窗口失败: {e}");
             }
             log::info!("检测到重复打开，参数: {argv:?}, 工作目录: {cwd}");
         }))
         .manage(app_state.clone())
+        .manage(app_lifecycle_state.clone())
         // 系统托盘在 setup 中创建 (Tauri v2)
         .on_window_event(|window, event| {
+            if window.label() != MAIN_WINDOW_LABEL {
+                return;
+            }
+
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // 点击关闭按钮时隐藏窗口而不是退出
-                let _ = window.hide();
-                api.prevent_close();
+                let lightweight_mode = window
+                    .try_state::<Arc<Mutex<AppState>>>()
+                    .and_then(|state| state.lock().ok().map(|guard| guard.config.lightweight_mode))
+                    .unwrap_or(false);
+
+                if main_window_close_behavior(lightweight_mode)
+                    == MainWindowCloseBehavior::HideToTray
+                {
+                    let _ = window.hide();
+                    api.prevent_close();
+                } else if let Some(lifecycle_state) =
+                    window.try_state::<Arc<Mutex<AppLifecycleState>>>()
+                {
+                    let mut lifecycle_state =
+                        lifecycle_state.lock().unwrap_or_else(|e| e.into_inner());
+                    lifecycle_state.suppress_next_exit = true;
+                }
+            } else if let tauri::WindowEvent::Destroyed = event {
+                sync_effective_dock_visibility(&window.app_handle());
             }
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
-
-            #[cfg(target_os = "windows")]
-            if let Some(icon) = build_windows_window_icon() {
-                if let Err(e) = window.set_icon(icon) {
-                    log::warn!("设置 Windows 主窗口图标失败，继续使用默认图标: {e}");
-                }
-            }
-
-            // macOS 原生标题栏配置
-            #[cfg(target_os = "macos")]
-            {
-                use tauri::TitleBarStyle;
-                // 开启 decorations 以显示红绿灯
-                let _ = window.set_decorations(true);
-                // 设置标题栏透明（红绿灯悬浮在内容之上）
-                let _ = window.set_title_bar_style(TitleBarStyle::Transparent);
-            }
+            configure_main_window(&window);
 
             // 获取 Arc<Mutex<AppState>> 并克隆以便在异步任务中使用
             let state = app.state::<Arc<Mutex<AppState>>>();
             let state_clone = state.inner().clone();
             let state_clone2 = state.inner().clone();
             let state_clone3 = state.inner().clone();
-            let _state_for_tray = state.inner().clone(); // 预留
-            let window_clone = window.clone();
-            let window_for_tray = window.clone();
+            let state_for_tray = state.inner().clone();
             let app_handle = app.handle().clone();
+            let screenshot_app_handle = app.handle().clone();
 
             let (avatar_enabled, avatar_scale, avatar_position, avatar_state) = {
                 let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
@@ -1675,19 +1960,37 @@ async fn main() {
             }
 
             // 创建 Tauri v2 系统托盘
-            let show = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
-            let pause = MenuItemBuilder::with_id("pause", "暂停录制").build(app)?;
-            let resume = MenuItemBuilder::with_id("resume", "恢复录制").build(app)?;
-            let quit = MenuItemBuilder::with_id("quit", "退出").build(app)?;
+            let show = MenuItemBuilder::with_id(TRAY_MENU_SHOW_ID, "显示窗口").build(app)?;
+            let recording_toggle = MenuItemBuilder::with_id(
+                TRAY_MENU_RECORDING_TOGGLE_ID,
+                tray_recording_toggle_label(true, false),
+            )
+            .build(app)?;
+            let lightweight_mode =
+                CheckMenuItemBuilder::with_id(TRAY_MENU_LIGHTWEIGHT_MODE_ID, "轻量模式")
+                    .checked(false)
+                    .build(app)?;
+            let avatar_toggle = CheckMenuItemBuilder::with_id(TRAY_MENU_AVATAR_TOGGLE_ID, "桌宠")
+                .checked(avatar_enabled)
+                .build(app)?;
+            let quit = MenuItemBuilder::with_id(TRAY_MENU_QUIT_ID, "退出").build(app)?;
 
             let menu = MenuBuilder::new(app)
                 .item(&show)
                 .separator()
-                .item(&pause)
-                .item(&resume)
+                .item(&recording_toggle)
+                .item(&lightweight_mode)
+                .item(&avatar_toggle)
                 .separator()
                 .item(&quit)
                 .build()?;
+
+            app.manage(TrayMenuState {
+                recording_toggle: recording_toggle.clone(),
+                lightweight_mode: lightweight_mode.clone(),
+                avatar_toggle: avatar_toggle.clone(),
+            });
+            refresh_tray_menu(&app.handle());
 
             let tray_icon = build_tray_icon(app);
             let tray_builder = TrayIconBuilder::new().icon(tray_icon).menu(&menu);
@@ -1697,30 +2000,73 @@ async fn main() {
 
             let _tray = tray_builder
                 .on_menu_event(move |app, event| match event.id().as_ref() {
-                    "quit" => {
-                        std::process::exit(0);
+                    TRAY_MENU_QUIT_ID => {
+                        if let Some(lifecycle_state) =
+                            app.try_state::<Arc<Mutex<AppLifecycleState>>>()
+                        {
+                            let mut lifecycle_state =
+                                lifecycle_state.lock().unwrap_or_else(|e| e.into_inner());
+                            lifecycle_state.explicit_quit_requested = true;
+                        }
+                        app.exit(0);
                     }
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.unminimize();
-                            let _ = window.show();
-                            let _ = window.set_focus();
+                    TRAY_MENU_SHOW_ID => {
+                        if let Err(e) = reveal_main_window(&app.clone(), None) {
+                            log::warn!("从托盘恢复主窗口失败: {e}");
                         }
                     }
-                    "pause" => {
-                        if let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() {
-                            if let Ok(mut state) = state.lock() {
-                                state.is_paused = true;
-                                log::info!("录制已暂停");
+                    TRAY_MENU_RECORDING_TOGGLE_ID => {
+                        {
+                            let mut state =
+                                state_for_tray.lock().unwrap_or_else(|e| e.into_inner());
+                            let action =
+                                tray_recording_toggle_action(state.is_recording, state.is_paused);
+                            match action {
+                                RecordingToggleAction::Start => {
+                                    state.is_recording = true;
+                                    state.is_paused = false;
+                                    log::info!("托盘操作：开始录制");
+                                }
+                                RecordingToggleAction::Pause => {
+                                    state.is_paused = true;
+                                    log::info!("托盘操作：暂停录制");
+                                }
+                                RecordingToggleAction::Resume => {
+                                    state.is_paused = false;
+                                    log::info!("托盘操作：恢复录制");
+                                }
                             }
                         }
+                        emit_recording_state_changed(&app);
                     }
-                    "resume" => {
-                        if let Some(state) = app.try_state::<Arc<Mutex<AppState>>>() {
-                            if let Ok(mut state) = state.lock() {
-                                state.is_paused = false;
-                                log::info!("录制已恢复");
-                            }
+                    TRAY_MENU_LIGHTWEIGHT_MODE_ID => {
+                        let next_config = {
+                            let state = state_for_tray.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut config = state.config.clone();
+                            config.lightweight_mode = !config.lightweight_mode;
+                            config
+                        };
+
+                        if let Err(e) =
+                            commands::persist_app_config(next_config, app.clone(), &state_for_tray)
+                        {
+                            log::warn!("从托盘切换轻量模式失败: {e}");
+                            refresh_tray_menu(&app);
+                        }
+                    }
+                    TRAY_MENU_AVATAR_TOGGLE_ID => {
+                        let next_config = {
+                            let state = state_for_tray.lock().unwrap_or_else(|e| e.into_inner());
+                            let mut config = state.config.clone();
+                            config.avatar_enabled = !config.avatar_enabled;
+                            config
+                        };
+
+                        if let Err(e) =
+                            commands::persist_app_config(next_config, app.clone(), &state_for_tray)
+                        {
+                            log::warn!("从托盘切换桌宠失败: {e}");
+                            refresh_tray_menu(&app);
                         }
                     }
                     _ => {}
@@ -1733,16 +2079,17 @@ async fn main() {
                         ..
                     } = event
                     {
-                        let _ = window_for_tray.unminimize();
-                        let _ = window_for_tray.show();
-                        let _ = window_for_tray.set_focus();
+                        let app_handle = _tray.app_handle();
+                        if let Err(e) = reveal_main_window(&app_handle, None) {
+                            log::warn!("点击托盘恢复主窗口失败: {e}");
+                        }
                     }
                 })
                 .build(app)?;
 
             // 启动后台截屏任务
             tauri::async_runtime::spawn(async move {
-                background_screenshot_task(state_clone, window_clone).await;
+                background_screenshot_task(state_clone, screenshot_app_handle).await;
             });
 
             tauri::async_runtime::spawn(async move {
@@ -1774,14 +2121,10 @@ async fn main() {
                     Err(e) => log::error!("清理重复记录失败: {e}"),
                 }
 
-                // 启动时应用 Dock 图标配置
-                #[cfg(target_os = "macos")]
-                {
-                    commands::apply_dock_visibility(!state_guard.config.hide_dock_icon, false);
-                }
-
                 // decorations 配置由 tauri.conf.json 控制，用户可通过设置中的开关动态修改
             }
+
+            sync_effective_dock_visibility(&app.handle());
 
             // 保存 AppHandle 到全局变量，用于从 macOS Dock 点击恢复窗口
             let _ = APP_HANDLE.set(app.handle().clone());
@@ -1827,6 +2170,9 @@ async fn main() {
             commands::get_ai_providers,
             commands::get_running_apps,
             commands::get_recent_apps,
+            commands::get_app_category_overview,
+            commands::set_app_category_rule,
+            commands::reclassify_app_history,
             commands::get_storage_stats,
             commands::get_hourly_summaries,
             commands::get_activity,
@@ -1856,6 +2202,25 @@ async fn main() {
         .build(tauri::generate_context!())
         .expect("构建 Tauri 应用时出错")
         .run(|_app_handle, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if let Some(lifecycle_state) =
+                    _app_handle.try_state::<Arc<Mutex<AppLifecycleState>>>()
+                {
+                    let mut lifecycle_state =
+                        lifecycle_state.lock().unwrap_or_else(|e| e.into_inner());
+                    let should_prevent = should_prevent_exit(
+                        lifecycle_state.suppress_next_exit,
+                        lifecycle_state.explicit_quit_requested,
+                    );
+                    lifecycle_state.suppress_next_exit = false;
+
+                    if should_prevent {
+                        log::info!("拦截最后一个主窗口关闭导致的退出，保留后台与托盘");
+                        api.prevent_exit();
+                        return;
+                    }
+                }
+            }
             // 处理 macOS Dock 点击：显示隐藏的窗口（仅 macOS）
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen {
@@ -1863,10 +2228,8 @@ async fn main() {
                 ..
             } => {
                 if !has_visible_windows {
-                    if let Some(window) = _app_handle.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
+                    if let Err(e) = reveal_main_window(&_app_handle.clone(), None) {
+                        log::warn!("Dock 恢复主窗口失败: {e}");
                     }
                 }
             }
@@ -1878,7 +2241,9 @@ async fn main() {
 mod tests {
     use super::{
         avatar_activity_decision, avatar_monitor_poll_interval_ms, avatar_transition_decision,
-        monitoring_poll_interval_ms, recording_loop_decision,
+        effective_dock_visibility, main_window_close_behavior, monitoring_poll_interval_ms,
+        recording_loop_decision, should_prevent_exit, tray_recording_toggle_action,
+        tray_recording_toggle_label, MainWindowCloseBehavior, RecordingToggleAction,
     };
     use crate::avatar_engine::{apply_avatar_opacity, default_avatar_state, derive_avatar_state};
 
@@ -1960,5 +2325,59 @@ mod tests {
         assert_eq!(decision.emit_state, Some(candidate));
         assert_eq!(decision.pending_state, None);
         assert_eq!(decision.pending_hits, 0);
+    }
+
+    #[test]
+    fn 轻量模式关闭时主窗口关闭按钮应改为隐藏() {
+        assert_eq!(
+            main_window_close_behavior(false),
+            MainWindowCloseBehavior::HideToTray
+        );
+    }
+
+    #[test]
+    fn 轻量模式开启时主窗口关闭按钮应允许真正关闭() {
+        assert_eq!(
+            main_window_close_behavior(true),
+            MainWindowCloseBehavior::CloseWindow
+        );
+    }
+
+    #[test]
+    fn dock可见性应同时考虑用户偏好轻量模式与主窗口是否存在() {
+        assert!(!effective_dock_visibility(true, false, true));
+        assert!(effective_dock_visibility(false, false, true));
+        assert!(effective_dock_visibility(false, true, true));
+        assert!(!effective_dock_visibility(false, true, false));
+    }
+
+    #[test]
+    fn 托盘录制按钮应根据当前状态切换动作() {
+        assert_eq!(
+            tray_recording_toggle_action(false, false),
+            RecordingToggleAction::Start
+        );
+        assert_eq!(
+            tray_recording_toggle_action(true, false),
+            RecordingToggleAction::Pause
+        );
+        assert_eq!(
+            tray_recording_toggle_action(true, true),
+            RecordingToggleAction::Resume
+        );
+    }
+
+    #[test]
+    fn 托盘录制按钮文案应与状态一致() {
+        assert_eq!(tray_recording_toggle_label(false, false), "开始录制");
+        assert_eq!(tray_recording_toggle_label(true, false), "暂停录制");
+        assert_eq!(tray_recording_toggle_label(true, true), "恢复录制");
+    }
+
+    #[test]
+    fn 仅应拦截主窗口关闭导致的被动退出() {
+        assert!(should_prevent_exit(true, false));
+        assert!(!should_prevent_exit(false, false));
+        assert!(!should_prevent_exit(true, true));
     }
 }

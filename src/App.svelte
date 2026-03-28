@@ -219,6 +219,16 @@
         }
       });
 
+      const unlistenRecordingState = await listen('recording-state-changed', (event) => {
+        isRecording = event.payload.isRecording;
+        isPaused = event.payload.isPaused;
+      });
+
+      const unlistenConfigChanged = await listen('config-changed', (event) => {
+        runtimeConfig = event.payload;
+        cache.setConfig(event.payload);
+      });
+
       // 监听背景图更新事件（来自设置页，实时预览）
       const handleBgChange = (e) => handleBackgroundChanged(e);
       window.addEventListener('background-changed', handleBgChange);
@@ -300,6 +310,8 @@
 
       cleanup = () => {
         unlisten();
+        unlistenRecordingState();
+        unlistenConfigChanged();
         unsubscribeCache();
         clearTimeout(autoUpdateTimer);
         clearInterval(autoReportTimer);

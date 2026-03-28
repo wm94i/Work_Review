@@ -4,6 +4,8 @@
   import { listen } from '@tauri-apps/api/event';
   import { open } from '@tauri-apps/plugin-shell';
   import { cache } from '../../lib/stores/cache.js';
+  import { confirm } from '../../lib/stores/confirm.js';
+  import { showToast } from '../../lib/stores/toast.js';
   import { appIconStore, getIconCacheKey, preloadAppIcons } from '../../lib/stores/iconCache.js';
   import { resolveAppIconSrc } from '../../lib/utils/appVisuals.js';
   import { formatBrowserUrlForDisplay } from '../../lib/utils/browserUrl.js';
@@ -69,6 +71,11 @@
     entertainment: { name: '娱乐摸鱼', color: 'red', icon: '🎮' },
     other: { name: '其他', color: 'gray', icon: '📁' },
   };
+  const categoryOptions = Object.entries(categoryInfo).map(([value, info]) => ({
+    value,
+    label: info.name,
+  }));
+  let categorySaving = false;
 
   // 格式化时间
   function formatTime(timestamp) {
@@ -97,6 +104,10 @@
       activity.app_name,
       appIcons[getIconCacheKey({ appName: activity.app_name, executablePath: activity.executable_path })]
     );
+  }
+
+  function normalizeAppMatchKey(appName) {
+    return (appName || '').trim().toLowerCase();
   }
 
   // 优化窗口标题显示
@@ -318,6 +329,52 @@
   // 关闭详情
   function closeDetail() {
     selectedActivity = null;
+    categorySaving = false;
+  }
+
+  async function changeAppCategory(activity, nextCategory) {
+    if (!activity || !nextCategory || categorySaving) return;
+    if ((activity.category || 'other') === nextCategory) return;
+
+    const targetInfo = categoryInfo[nextCategory] || categoryInfo.other;
+    const confirmed = await confirm({
+      title: '修改应用默认分类',
+      message: `将${activity.app_name}的默认分类改为“${targetInfo.name}”，并同步更新该应用的历史记录。是否继续？`,
+      confirmText: '确认修改',
+      cancelText: '取消',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+
+    categorySaving = true;
+    try {
+      const updatedCount = await invoke('set_app_category_rule', {
+        appName: activity.app_name,
+        category: nextCategory,
+        syncHistory: true,
+      });
+
+      const appMatchKey = normalizeAppMatchKey(activity.app_name);
+      activities = activities.map((item) =>
+        normalizeAppMatchKey(item.app_name) === appMatchKey
+          ? { ...item, category: nextCategory }
+          : item
+      );
+
+      if (selectedActivity && normalizeAppMatchKey(selectedActivity.app_name) === appMatchKey) {
+        selectedActivity = { ...selectedActivity, category: nextCategory };
+      }
+
+      showToast(
+        `已将 ${activity.app_name} 设为“${targetInfo.name}”，并同步 ${updatedCount} 条历史记录`,
+        'success'
+      );
+    } catch (e) {
+      console.error('修改应用默认分类失败:', e);
+      showToast(`修改 ${activity.app_name} 的默认分类失败: ${e}`, 'error');
+    } finally {
+      categorySaving = false;
+    }
   }
 
   // 记录上次加载的日期
@@ -614,6 +671,34 @@
 
       <!-- 内容 -->
       <div class="p-6 space-y-4">
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <span class="text-sm font-medium text-slate-500 dark:text-slate-400">应用默认分类</span>
+              <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                修改后会同步更新该应用的历史记录
+              </p>
+            </div>
+            {#if categorySaving}
+              <span class="text-xs text-slate-400">保存中...</span>
+            {/if}
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+            {#each categoryOptions as option}
+              <button
+                on:click={() => changeAppCategory(selectedActivity, option.value)}
+                class="segment-btn rounded-lg border px-3 py-2 text-sm
+                  {(selectedActivity.category || 'other') === option.value
+                    ? 'settings-segment-success'
+                    : 'settings-segment-idle'}"
+                disabled={categorySaving}
+              >
+                {option.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+
         <!-- 截图预览 -->
         <div>
           <span class="text-sm font-medium text-slate-500 dark:text-slate-400">屏幕截图</span>

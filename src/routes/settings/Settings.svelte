@@ -66,6 +66,10 @@
       if (!config.vision_model) {
         config.vision_model = { provider: 'ollama', endpoint: 'http://localhost:11434', api_key: null, model: 'llava' };
       }
+      if (typeof config.lightweight_mode !== 'boolean') {
+        config.lightweight_mode = false;
+      }
+      if (!config.app_category_rules) config.app_category_rules = [];
       if (!config.privacy.app_rules) config.privacy.app_rules = [];
       if (!config.privacy.sensitive_keywords) config.privacy.sensitive_keywords = [];
     } catch (e) {
@@ -141,11 +145,17 @@
   }
 
   onMount(() => {
+    const unsubscribeCache = cache.subscribe((state) => {
+      if (!state.config) return;
+      config = state.config;
+    });
+
     loadConfig();
     loadRunningApps();
     loadRecentApps();
 
     return () => {
+      unsubscribeCache();
       clearTimeout(successTimer);
     };
   });

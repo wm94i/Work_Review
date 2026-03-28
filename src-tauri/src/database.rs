@@ -70,6 +70,14 @@ pub struct AppUsage {
     pub executable_path: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AppCategorySnapshot {
+    pub app_name: String,
+    pub category: String,
+    pub total_duration: i64,
+    pub latest_timestamp: i64,
+}
+
 /// 分类使用统计
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CategoryUsage {
@@ -1554,6 +1562,122 @@ impl Database {
             .collect())
     }
 
+    pub fn get_app_category_overview(&self) -> Result<Vec<AppCategorySnapshot>> {
+        use std::collections::HashMap;
+
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT app_name, category, duration, timestamp
+             FROM activities
+             ORDER BY timestamp DESC, id DESC",
+        )?;
+
+        let rows: Vec<(String, String, i64, i64)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        let mut merged: HashMap<String, AppCategorySnapshot> = HashMap::new();
+        for (raw_name, category, duration, timestamp) in rows {
+            let normalized_name = crate::monitor::normalize_display_app_name(&raw_name);
+            let key = normalized_name.to_lowercase();
+
+            let entry = merged.entry(key).or_insert_with(|| AppCategorySnapshot {
+                app_name: normalized_name.clone(),
+                category: category.clone(),
+                total_duration: 0,
+                latest_timestamp: timestamp,
+            });
+
+            entry.total_duration += duration;
+            if timestamp >= entry.latest_timestamp {
+                entry.latest_timestamp = timestamp;
+                entry.app_name = normalized_name;
+                entry.category = category;
+            }
+        }
+
+        let mut overview: Vec<AppCategorySnapshot> = merged.into_values().collect();
+        overview.sort_by(|a, b| {
+            b.total_duration
+                .cmp(&a.total_duration)
+                .then_with(|| b.latest_timestamp.cmp(&a.latest_timestamp))
+                .then_with(|| a.app_name.cmp(&b.app_name))
+        });
+
+        Ok(overview)
+    }
+
+    pub fn get_activities_by_normalized_app_name(&self, app_name: &str) -> Result<Vec<Activity>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let target = crate::monitor::normalize_display_app_name(app_name).to_lowercase();
+        let mut stmt = conn.prepare(
+            "SELECT id, timestamp, app_name, window_title, screenshot_path, ocr_text, category, duration, browser_url, executable_path, semantic_category, semantic_confidence
+             FROM activities
+             ORDER BY timestamp ASC, id ASC",
+        )?;
+
+        let activities = stmt
+            .query_map([], |row| {
+                Ok(Activity {
+                    id: Some(row.get(0)?),
+                    timestamp: row.get(1)?,
+                    app_name: row.get(2)?,
+                    window_title: row.get(3)?,
+                    screenshot_path: row.get(4)?,
+                    ocr_text: row.get(5)?,
+                    category: row.get(6)?,
+                    duration: row.get(7)?,
+                    browser_url: row.get(8)?,
+                    executable_path: row.get(9)?,
+                    semantic_category: row.get(10)?,
+                    semantic_confidence: row.get(11)?,
+                })
+            })?
+            .filter_map(|row| row.ok())
+            .filter(|activity| {
+                crate::monitor::normalize_display_app_name(&activity.app_name).to_lowercase()
+                    == target
+            })
+            .collect();
+
+        Ok(activities)
+    }
+
+    pub fn update_activity_classification(
+        &self,
+        id: i64,
+        category: &str,
+        semantic_category: Option<&str>,
+        semantic_confidence: Option<i32>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        conn.execute(
+            "UPDATE activities
+             SET category = ?1, semantic_category = ?2, semantic_confidence = ?3
+             WHERE id = ?4",
+            params![category, semantic_category, semantic_confidence, id],
+        )?;
+
+        Ok(())
+    }
+
     /// 搜索工作记忆
     /// 第一阶段使用结构化检索 + Rust 侧评分，不依赖向量库。
     pub fn search_memory(
@@ -2144,6 +2268,79 @@ mod tests {
 
         assert_eq!(latest.semantic_category.as_deref(), Some("资料阅读"));
         assert_eq!(latest.semantic_confidence, Some(86));
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn 应支持按归一化应用名批量读取并更新历史分类() {
+        let db_path = temp_db_path("reclassify-by-normalized-app");
+        let db = Database::new(&db_path).expect("创建测试数据库失败");
+        let now = chrono::Local::now().timestamp();
+
+        let records = vec![
+            Activity {
+                id: None,
+                timestamp: now - 30,
+                app_name: "MuMu".to_string(),
+                window_title: "首页".to_string(),
+                screenshot_path: "mumu-a.jpg".to_string(),
+                ocr_text: None,
+                category: "design".to_string(),
+                duration: 20,
+                browser_url: None,
+                executable_path: None,
+                semantic_category: Some("设计创作".to_string()),
+                semantic_confidence: Some(75),
+            },
+            Activity {
+                id: None,
+                timestamp: now - 10,
+                app_name: "mumu".to_string(),
+                window_title: "游戏中心".to_string(),
+                screenshot_path: "mumu-b.jpg".to_string(),
+                ocr_text: None,
+                category: "design".to_string(),
+                duration: 30,
+                browser_url: None,
+                executable_path: None,
+                semantic_category: Some("设计创作".to_string()),
+                semantic_confidence: Some(70),
+            },
+        ];
+
+        for activity in &records {
+            db.insert_activity(activity).expect("插入测试数据失败");
+        }
+
+        let matched = db
+            .get_activities_by_normalized_app_name("MuMu")
+            .expect("按应用读取历史活动失败");
+        assert_eq!(matched.len(), 2);
+
+        for activity in &matched {
+            db.update_activity_classification(
+                activity.id.expect("活动应已持久化"),
+                "entertainment",
+                Some("休息娱乐"),
+                Some(88),
+            )
+            .expect("更新活动分类失败");
+        }
+
+        let refreshed = db
+            .get_activities_by_normalized_app_name("MuMu")
+            .expect("重新读取历史活动失败");
+
+        assert!(refreshed
+            .iter()
+            .all(|activity| activity.category == "entertainment"));
+        assert!(refreshed
+            .iter()
+            .all(|activity| activity.semantic_category.as_deref() == Some("休息娱乐")));
+        assert!(refreshed
+            .iter()
+            .all(|activity| activity.semantic_confidence == Some(88)));
 
         let _ = std::fs::remove_file(db_path);
     }

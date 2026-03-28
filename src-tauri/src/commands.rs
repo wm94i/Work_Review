@@ -1,4 +1,4 @@
-use crate::config::{AiProvider, AiProviderConfig, AppConfig, ModelConfig};
+use crate::config::{AiProvider, AiProviderConfig, AppCategoryRule, AppConfig, ModelConfig};
 use crate::database::Database;
 use crate::database::{Activity, DailyReport, DailyStats, MemorySearchItem};
 use crate::error::AppError;
@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 const GITHUB_LATEST_RELEASE_API: &str =
@@ -46,6 +46,15 @@ pub struct ModelTestResult {
     pub message: String,
     pub response_time_ms: u64,
     pub model_info: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppCategoryOverviewItem {
+    pub app_name: String,
+    pub category: String,
+    pub total_duration: i64,
+    pub is_overridden: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -362,7 +371,10 @@ fn format_memory_references(references: &[MemorySearchItem]) -> String {
 
             if let Some(browser_url) = &item.browser_url {
                 if !browser_url.is_empty() {
-                    parts.push(format!("URL: {}", format_browser_url_for_display(browser_url)));
+                    parts.push(format!(
+                        "URL: {}",
+                        format_browser_url_for_display(browser_url)
+                    ));
                 }
             }
 
@@ -2435,12 +2447,10 @@ pub async fn get_config(state: State<'_, Arc<Mutex<AppState>>>) -> Result<AppCon
     Ok(state.config.clone())
 }
 
-/// 保存配置
-#[tauri::command]
-pub async fn save_config(
+pub(crate) fn persist_app_config(
     mut config: AppConfig,
     app: AppHandle,
-    state: State<'_, Arc<Mutex<AppState>>>,
+    state: &Arc<Mutex<AppState>>,
 ) -> Result<(), AppError> {
     config.normalize();
     let avatar_state = {
@@ -2470,12 +2480,62 @@ pub async fn save_config(
         config.avatar_x.zip(config.avatar_y),
     )
     .map_err(|e| AppError::Unknown(format!("同步桌宠窗口失败: {e}")))?;
-    if config.avatar_enabled {
+    if config.avatar_enabled && !refresh_avatar_state_for_current_window(&app, state) {
         crate::avatar_engine::emit_avatar_state(&app, &avatar_state);
     }
+    crate::sync_effective_dock_visibility(&app);
+    crate::emit_config_changed(&app, &config);
 
     log::info!("配置已保存");
     Ok(())
+}
+
+/// 保存配置
+#[tauri::command]
+pub async fn save_config(
+    config: AppConfig,
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    persist_app_config(config, app, state.inner())
+}
+
+fn refresh_avatar_state_for_current_window(app: &AppHandle, state: &Arc<Mutex<AppState>>) -> bool {
+    let active_window = match crate::monitor::get_active_window_fast() {
+        Ok(window) => window,
+        Err(_) => return false,
+    };
+
+    let next_avatar_state = {
+        let mut state_guard = match state.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                log::warn!("刷新桌宠状态时获取状态锁失败: {e}");
+                return false;
+            }
+        };
+
+        if !state_guard.config.avatar_enabled {
+            return false;
+        }
+
+        let next_state = crate::avatar_engine::apply_avatar_opacity(
+            crate::avatar_engine::derive_avatar_state_with_rules(
+                &state_guard.config.app_category_rules,
+                &active_window.app_name,
+                &active_window.window_title,
+                active_window.browser_url.as_deref(),
+                state_guard.avatar_state.is_idle,
+                state_guard.avatar_generating_report,
+            ),
+            state_guard.config.avatar_opacity,
+        );
+        state_guard.avatar_state = next_state.clone();
+        next_state
+    };
+
+    crate::avatar_engine::emit_avatar_state(app, &next_avatar_state);
+    true
 }
 
 /// 获取更新检查设置
@@ -2892,37 +2952,60 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
 
 /// 开始录制
 #[tauri::command]
-pub async fn start_recording(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), AppError> {
+pub async fn start_recording(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
     let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.is_recording = true;
+    state.is_paused = false;
     log::info!("开始录制");
+    drop(state);
+    crate::emit_recording_state_changed(&app);
     Ok(())
 }
 
 /// 停止录制
 #[tauri::command]
-pub async fn stop_recording(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), AppError> {
+pub async fn stop_recording(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
     let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.is_recording = false;
+    state.is_paused = false;
     log::info!("停止录制");
+    drop(state);
+    crate::emit_recording_state_changed(&app);
     Ok(())
 }
 
 /// 暂停录制
 #[tauri::command]
-pub async fn pause_recording(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), AppError> {
+pub async fn pause_recording(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
     let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.is_paused = true;
     log::info!("暂停录制");
+    drop(state);
+    crate::emit_recording_state_changed(&app);
     Ok(())
 }
 
 /// 恢复录制
 #[tauri::command]
-pub async fn resume_recording(state: State<'_, Arc<Mutex<AppState>>>) -> Result<(), AppError> {
+pub async fn resume_recording(
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
     let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    state.is_recording = true;
     state.is_paused = false;
     log::info!("恢复录制");
+    drop(state);
+    crate::emit_recording_state_changed(&app);
     Ok(())
 }
 
@@ -2963,14 +3046,11 @@ pub async fn save_avatar_position(
 
 /// 显示主窗口
 #[tauri::command]
-pub async fn show_main_window(app: AppHandle) -> Result<(), AppError> {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-
-    Ok(())
+pub async fn show_main_window(
+    app: AppHandle,
+    source_window_label: Option<String>,
+) -> Result<(), AppError> {
+    crate::reveal_main_window(&app, source_window_label.as_deref())
 }
 
 /// 获取数据目录
@@ -3518,9 +3598,12 @@ pub async fn take_screenshot(state: State<'_, Arc<Mutex<AppState>>>) -> Result<A
         }
 
         // 执行截屏
-        let result = state.screenshot_service.capture()?;
+        let result = state
+            .screenshot_service
+            .capture_for_window(Some(&active_window))?;
         let relative_path = state.screenshot_service.get_relative_path(&result.path);
-        let classification = crate::activity_classifier::classify_activity(
+        let classification = crate::resolve_activity_classification(
+            &state.config,
             &active_window.app_name,
             &active_window.window_title,
             active_window.browser_url.as_deref(),
@@ -3572,6 +3655,120 @@ pub async fn get_recent_apps(
     // 获取最多 50 个历史应用
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.database.get_recent_apps(50)
+}
+
+#[tauri::command]
+pub async fn get_app_category_overview(
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<Vec<AppCategoryOverviewItem>, AppError> {
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    let overview = state.database.get_app_category_overview()?;
+
+    Ok(overview
+        .into_iter()
+        .map(|item| {
+            let app_name = item.app_name;
+            let override_category =
+                crate::monitor::find_category_override(&state.config.app_category_rules, &app_name);
+            AppCategoryOverviewItem {
+                app_name: app_name.clone(),
+                category: override_category.unwrap_or(item.category),
+                total_duration: item.total_duration,
+                is_overridden: crate::monitor::find_category_override(
+                    &state.config.app_category_rules,
+                    &app_name,
+                )
+                .is_some(),
+            }
+        })
+        .collect())
+}
+
+fn upsert_app_category_rule(config: &mut AppConfig, app_name: &str, category: &str) {
+    let normalized_app_name = crate::monitor::normalize_display_app_name(app_name);
+    let normalized_category = crate::monitor::normalize_category_key(category);
+    let match_key = normalized_app_name.to_lowercase();
+
+    if let Some(rule) = config.app_category_rules.iter_mut().find(|rule| {
+        crate::monitor::normalize_display_app_name(&rule.app_name).to_lowercase() == match_key
+    }) {
+        rule.app_name = normalized_app_name;
+        rule.category = normalized_category;
+        return;
+    }
+
+    config.app_category_rules.push(AppCategoryRule {
+        app_name: normalized_app_name,
+        category: normalized_category,
+    });
+}
+
+fn reclassify_app_history_in_state(
+    state: &AppState,
+    app_name: &str,
+    category: &str,
+) -> Result<usize, AppError> {
+    let target_category = crate::monitor::normalize_category_key(category);
+    let activities = state
+        .database
+        .get_activities_by_normalized_app_name(app_name)?;
+
+    for activity in &activities {
+        let classification = crate::activity_classifier::classify_activity_with_base_category(
+            &activity.app_name,
+            &activity.window_title,
+            activity.browser_url.as_deref(),
+            &target_category,
+        );
+        state.database.update_activity_classification(
+            activity.id.expect("活动记录应包含主键"),
+            &classification.base_category,
+            Some(&classification.semantic_category),
+            Some(i32::from(classification.confidence)),
+        )?;
+    }
+
+    Ok(activities.len())
+}
+
+#[tauri::command]
+pub async fn set_app_category_rule(
+    app_name: String,
+    category: String,
+    sync_history: bool,
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<usize, AppError> {
+    let trimmed_app_name = app_name.trim();
+    if trimmed_app_name.is_empty() {
+        return Err(AppError::Unknown("应用名称不能为空".to_string()));
+    }
+
+    let next_config = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        let mut next_config = state.config.clone();
+        upsert_app_category_rule(&mut next_config, trimmed_app_name, &category);
+        next_config
+    };
+
+    persist_app_config(next_config, app, state.inner())?;
+
+    if !sync_history {
+        return Ok(0);
+    }
+
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    reclassify_app_history_in_state(&state, trimmed_app_name, &category)
+}
+
+#[tauri::command]
+pub async fn reclassify_app_history(
+    app_name: String,
+    category: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<usize, AppError> {
+    let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    reclassify_app_history_in_state(&state, &app_name, &category)
 }
 
 /// 获取当前运行的应用列表
@@ -3959,6 +4156,7 @@ pub fn set_dock_visibility(visible: bool) -> Result<(), AppError> {
 }
 
 #[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
 fn refresh_dock_icon(activate: bool) {
     use cocoa::appkit::{NSApp, NSImage};
     use cocoa::base::nil;
@@ -4096,7 +4294,9 @@ fn macos_score_app_bundle_name(app_name: &str, bundle_name: &str) -> i32 {
     let mut score = 0;
     if normalized_app == normalized_bundle {
         score += 1000;
-    } else if normalized_app.contains(&normalized_bundle) || normalized_bundle.contains(&normalized_app) {
+    } else if normalized_app.contains(&normalized_bundle)
+        || normalized_bundle.contains(&normalized_app)
+    {
         score += 500;
     }
 
@@ -4945,9 +5145,9 @@ mod tests {
         build_fallback_assistant_answer, build_updater_manifest_candidates,
         build_windows_icon_cache_key, detect_assistant_question_kind,
         detect_assistant_question_kind_with_mode, format_browser_url_for_display,
-        macos_score_app_bundle_name, normalize_macos_app_lookup_name,
-        merge_windows_icon_lookup_candidates,
-        AssistantChatMessage, AssistantQuestionKind, AssistantReasoningMode,
+        macos_score_app_bundle_name, merge_windows_icon_lookup_candidates,
+        normalize_macos_app_lookup_name, AssistantChatMessage, AssistantQuestionKind,
+        AssistantReasoningMode,
     };
     use crate::database::MemorySearchItem;
     use crate::work_intelligence::{
@@ -5133,7 +5333,10 @@ mod tests {
 
     #[test]
     fn macos图标名称归一化应兼容分隔符与后缀() {
-        assert_eq!(normalize_macos_app_lookup_name("Zen Browser"), "zen browser");
+        assert_eq!(
+            normalize_macos_app_lookup_name("Zen Browser"),
+            "zen browser"
+        );
         assert_eq!(
             normalize_macos_app_lookup_name("antigravity_tools.app"),
             "antigravity tools"

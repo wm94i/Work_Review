@@ -39,10 +39,8 @@
     try {
       if (isPaused) {
         await invoke('resume_recording');
-        isPaused = false;
       } else {
         await invoke('pause_recording');
-        isPaused = true;
       }
     } catch (e) {
       console.error('切换录制状态失败:', e);

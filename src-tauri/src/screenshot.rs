@@ -109,11 +109,34 @@ impl ScreenshotService {
         }
     }
 
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pub fn capture_for_window(
+        &self,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<ScreenshotResult> {
+        self.capture_impl(active_window)
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    pub fn capture_for_window(
+        &self,
+        _active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<ScreenshotResult> {
+        self.capture_impl()
+    }
+
+    pub fn capture(&self) -> Result<ScreenshotResult> {
+        self.capture_for_window(None)
+    }
+
     /// 执行截屏（Windows）
     /// 优先使用 Windows Graphics Capture API (Win11)
     /// 失败时降级使用 GDI BitBlt (Win10 兼容)
     #[cfg(target_os = "windows")]
-    pub fn capture(&self) -> Result<ScreenshotResult> {
+    fn capture_impl(
+        &self,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<ScreenshotResult> {
         // 生成文件路径
         let now = chrono::Local::now();
         let date_str = now.format("%Y-%m-%d").to_string();
@@ -125,7 +148,7 @@ impl ScreenshotService {
         let final_jpg = screenshots_dir.join(format!("{time_str}.jpg"));
 
         // 先尝试 Windows Graphics Capture API
-        match self.capture_with_wgc(&screenshots_dir, &time_str) {
+        match self.capture_with_wgc(&screenshots_dir, &time_str, active_window) {
             Ok(result) => {
                 return self.process_and_save_image(
                     &result.0,
@@ -141,7 +164,7 @@ impl ScreenshotService {
         }
 
         // 降级使用 GDI BitBlt（Windows 10 兼容方案）
-        match self.capture_with_gdi() {
+        match self.capture_with_gdi(active_window) {
             Ok((pixels, width, height)) => {
                 self.save_rgba_to_jpeg(&pixels, width, height, &final_jpg, now.timestamp())
             }
@@ -155,6 +178,7 @@ impl ScreenshotService {
         &self,
         screenshots_dir: &Path,
         time_str: &str,
+        active_window: Option<&crate::monitor::ActiveWindow>,
     ) -> Result<(PathBuf, u32, u32)> {
         use std::sync::{
             atomic::{AtomicBool, Ordering},
@@ -248,13 +272,14 @@ impl ScreenshotService {
             }
         }
 
-        let primary_monitor = Monitor::primary()
-            .map_err(|e| AppError::Screenshot(format!("获取主显示器失败: {e}")))?;
+        let target_monitor = capture_target_monitor(active_window)
+            .or_else(|| Monitor::primary().ok())
+            .ok_or_else(|| AppError::Screenshot("获取目标显示器失败".to_string()))?;
 
         // 尝试 WithoutBorder
         let flags = (result.clone(), captured.clone(), temp_png.clone());
         let settings = Settings::new(
-            primary_monitor.clone(),
+            target_monitor,
             CursorCaptureSettings::WithCursor,
             DrawBorderSettings::WithoutBorder,
             SecondaryWindowSettings::Default,
@@ -286,11 +311,8 @@ impl ScreenshotService {
             captured.store(false, Ordering::SeqCst);
 
             let flags2 = (result.clone(), captured.clone(), temp_png.clone());
-            let primary_monitor2 = Monitor::primary()
-                .map_err(|e| AppError::Screenshot(format!("获取主显示器失败: {e}")))?;
-
             let settings2 = Settings::new(
-                primary_monitor2,
+                target_monitor,
                 CursorCaptureSettings::WithCursor,
                 DrawBorderSettings::WithBorder,
                 SecondaryWindowSettings::Default,
@@ -326,7 +348,10 @@ impl ScreenshotService {
 
     /// 使用 GDI BitBlt 截屏（Windows 10 兼容方案）
     #[cfg(target_os = "windows")]
-    fn capture_with_gdi(&self) -> Result<(Vec<u8>, u32, u32)> {
+    fn capture_with_gdi(
+        &self,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<(Vec<u8>, u32, u32)> {
         use std::ptr::null_mut;
         use winapi::um::wingdi::{
             BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits,
@@ -335,9 +360,15 @@ impl ScreenshotService {
         use winapi::um::winuser::{GetDC, GetSystemMetrics, ReleaseDC, SM_CXSCREEN, SM_CYSCREEN};
 
         unsafe {
-            // 获取屏幕尺寸
-            let width = GetSystemMetrics(SM_CXSCREEN) as u32;
-            let height = GetSystemMetrics(SM_CYSCREEN) as u32;
+            let (source_x, source_y, width, height) =
+                capture_target_monitor_rect(active_window).unwrap_or_else(|| {
+                    (
+                        0,
+                        0,
+                        GetSystemMetrics(SM_CXSCREEN) as u32,
+                        GetSystemMetrics(SM_CYSCREEN) as u32,
+                    )
+                });
 
             if width == 0 || height == 0 {
                 return Err(AppError::Screenshot("获取屏幕尺寸失败".to_string()));
@@ -375,8 +406,8 @@ impl ScreenshotService {
                 width as i32,
                 height as i32,
                 screen_dc,
-                0,
-                0,
+                source_x,
+                source_y,
                 SRCCOPY,
             );
 
@@ -433,7 +464,13 @@ impl ScreenshotService {
                 chunk.swap(0, 2); // B <-> R
             }
 
-            log::info!("GDI 截图成功: {}x{}", width, height);
+            log::info!(
+                "GDI 截图成功: {}x{} @ ({}, {})",
+                width,
+                height,
+                source_x,
+                source_y
+            );
             Ok((pixels, width, height))
         }
     }
@@ -555,15 +592,33 @@ impl ScreenshotService {
 
     /// 执行截屏（macOS）
     #[cfg(target_os = "macos")]
-    pub fn capture(&self) -> Result<ScreenshotResult> {
+    fn capture_impl(
+        &self,
+        active_window: Option<&crate::monitor::ActiveWindow>,
+    ) -> Result<ScreenshotResult> {
         use screenshots::Screen;
 
-        let screens =
-            Screen::all().map_err(|e| AppError::Screenshot(format!("获取屏幕列表失败: {e}")))?;
-
-        let screen = screens
-            .first()
-            .ok_or_else(|| AppError::Screenshot("没有找到屏幕".to_string()))?;
+        let screen = if let Some((x, y)) = capture_target_point(active_window) {
+            match Screen::from_point(x, y) {
+                Ok(screen) => screen,
+                Err(e) => {
+                    log::warn!("按窗口坐标选屏失败，将回退到默认屏幕: {e}");
+                    let screens = Screen::all()
+                        .map_err(|err| AppError::Screenshot(format!("获取屏幕列表失败: {err}")))?;
+                    screens
+                        .first()
+                        .copied()
+                        .ok_or_else(|| AppError::Screenshot("没有找到屏幕".to_string()))?
+                }
+            }
+        } else {
+            let screens = Screen::all()
+                .map_err(|e| AppError::Screenshot(format!("获取屏幕列表失败: {e}")))?;
+            screens
+                .first()
+                .copied()
+                .ok_or_else(|| AppError::Screenshot("没有找到屏幕".to_string()))?
+        };
 
         let image = screen
             .capture()
@@ -629,7 +684,7 @@ impl ScreenshotService {
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    pub fn capture(&self) -> Result<ScreenshotResult> {
+    fn capture_impl(&self) -> Result<ScreenshotResult> {
         Err(AppError::Screenshot("当前平台不支持截屏".to_string()))
     }
 
@@ -679,5 +734,130 @@ impl ScreenshotService {
         let diff = xor.count_ones();
         let similarity = (64 - diff) * 100 / 64;
         similarity as u8
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn capture_target_point(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+) -> Option<(i32, i32)> {
+    let bounds = active_window?.window_bounds?;
+    if bounds.width == 0 || bounds.height == 0 {
+        return None;
+    }
+
+    let half_width = i32::try_from(bounds.width / 2).ok()?;
+    let half_height = i32::try_from(bounds.height / 2).ok()?;
+    Some((
+        bounds.x.saturating_add(half_width),
+        bounds.y.saturating_add(half_height),
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn capture_target_monitor(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+) -> Option<windows_capture::monitor::Monitor> {
+    let monitor = capture_target_hmonitor(active_window)?;
+    Some(windows_capture::monitor::Monitor::from_raw_hmonitor(
+        monitor as *mut std::ffi::c_void,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn capture_target_monitor_rect(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+) -> Option<(i32, i32, u32, u32)> {
+    use winapi::um::winuser::{GetMonitorInfoW, MONITORINFO};
+
+    let monitor = capture_target_hmonitor(active_window)?;
+    let mut monitor_info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        rcMonitor: unsafe { std::mem::zeroed() },
+        rcWork: unsafe { std::mem::zeroed() },
+        dwFlags: 0,
+    };
+
+    let ok = unsafe { GetMonitorInfoW(monitor, &mut monitor_info as *mut MONITORINFO) };
+    if ok == 0 {
+        return None;
+    }
+
+    let width = monitor_info
+        .rcMonitor
+        .right
+        .checked_sub(monitor_info.rcMonitor.left)?;
+    let height = monitor_info
+        .rcMonitor
+        .bottom
+        .checked_sub(monitor_info.rcMonitor.top)?;
+
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+
+    Some((
+        monitor_info.rcMonitor.left,
+        monitor_info.rcMonitor.top,
+        width as u32,
+        height as u32,
+    ))
+}
+
+#[cfg(target_os = "windows")]
+fn capture_target_hmonitor(
+    active_window: Option<&crate::monitor::ActiveWindow>,
+) -> Option<winapi::shared::windef::HMONITOR> {
+    use winapi::shared::windef::POINT;
+    use winapi::um::winuser::{MonitorFromPoint, MONITOR_DEFAULTTONEAREST};
+
+    let (x, y) = capture_target_point(active_window)?;
+    let point = POINT { x, y };
+    let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+    if monitor.is_null() {
+        None
+    } else {
+        Some(monitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_target_point;
+    use crate::monitor::{ActiveWindow, WindowBounds};
+
+    #[test]
+    fn 应按窗口中心点选择目标屏幕() {
+        let active_window = ActiveWindow {
+            app_name: "Work Review".to_string(),
+            window_title: "测试窗口".to_string(),
+            browser_url: None,
+            executable_path: None,
+            window_bounds: Some(WindowBounds {
+                x: 1440,
+                y: 120,
+                width: 1280,
+                height: 800,
+            }),
+        };
+
+        assert_eq!(
+            capture_target_point(Some(&active_window)),
+            Some((2080, 520))
+        );
+    }
+
+    #[test]
+    fn 缺少窗口边界时不应生成选屏坐标() {
+        let active_window = ActiveWindow {
+            app_name: "Work Review".to_string(),
+            window_title: "测试窗口".to_string(),
+            browser_url: None,
+            executable_path: None,
+            window_bounds: None,
+        };
+
+        assert_eq!(capture_target_point(Some(&active_window)), None);
+        assert_eq!(capture_target_point(None), None);
     }
 }

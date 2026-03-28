@@ -13,12 +13,22 @@ pub fn classify_activity(
     window_title: &str,
     browser_url: Option<&str>,
 ) -> ActivityClassification {
+    let base_category = crate::monitor::categorize_app(app_name.trim(), window_title.trim());
+    classify_activity_with_base_category(app_name, window_title, browser_url, &base_category)
+}
+
+pub fn classify_activity_with_base_category(
+    app_name: &str,
+    window_title: &str,
+    browser_url: Option<&str>,
+    base_category: &str,
+) -> ActivityClassification {
     let normalized_app = app_name.trim();
     let normalized_title = window_title.trim();
     let app_lower = normalized_app.to_lowercase();
     let title_lower = normalized_title.to_lowercase();
     let url_lower = browser_url.unwrap_or_default().trim().to_lowercase();
-    let base_category = crate::monitor::categorize_app(normalized_app, normalized_title);
+    let base_category = crate::monitor::normalize_category_key(base_category);
 
     let mut scores: HashMap<&'static str, i32> = HashMap::new();
     let mut evidence: HashMap<&'static str, Vec<String>> = HashMap::new();
@@ -88,7 +98,13 @@ pub fn classify_activity(
 
     if contains_any(
         &title_lower,
-        &["pull request", "code review", "review comments", "changed files", "diff"],
+        &[
+            "pull request",
+            "code review",
+            "review comments",
+            "changed files",
+            "diff",
+        ],
     ) {
         add("编码开发", 22, "窗口标题命中代码评审信号");
     }
@@ -418,7 +434,7 @@ pub fn classify_activity(
     let confidence = ((top_score + score_gap).clamp(55, 98)) as u8;
 
     ActivityClassification {
-        base_category,
+        base_category: base_category.to_string(),
         semantic_category: top_label.to_string(),
         confidence,
         evidence: evidence.remove(top_label).unwrap_or_default(),

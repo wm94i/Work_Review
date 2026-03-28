@@ -44,7 +44,7 @@
 
   async function openMainWindow() {
     try {
-      await invoke('show_main_window');
+      await invoke('show_main_window', { sourceWindowLabel: appWindow.label });
     } catch (e) {
       console.error('显示主窗口失败:', e);
     }

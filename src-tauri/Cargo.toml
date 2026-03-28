@@ -1,6 +1,6 @@
 [package]
 name = "work-review"
-version = "1.0.26"
+version = "1.0.27"
 
 description = "个人工作回顾与AI日报助手"
 authors = ["WorkReview Team"]

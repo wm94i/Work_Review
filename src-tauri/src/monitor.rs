@@ -88,6 +88,15 @@ fn run_monitor_command_with_timeout(command: &mut Command, context: &str) -> Res
 }
 
 /// 活动窗口信息
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 活动窗口信息
 #[derive(Debug, Clone)]
 pub struct ActiveWindow {
     pub app_name: String,
@@ -96,6 +105,8 @@ pub struct ActiveWindow {
     pub browser_url: Option<String>,
     /// 当前窗口对应的可执行文件路径（Windows 优先）
     pub executable_path: Option<String>,
+    /// 当前窗口的全局坐标和尺寸，用于多屏幕选屏截图
+    pub window_bounds: Option<WindowBounds>,
 }
 
 /// 判断进程名是否属于系统/桌面 shell 进程（不应记录使用时长）
@@ -524,7 +535,8 @@ fn decode_mozlz4_bytes(data: &[u8]) -> std::result::Result<Vec<u8>, String> {
         }
 
         let offset = u16::from_le_bytes([
-            *src.get(index).ok_or_else(|| "mozlz4 offset 越界".to_string())?,
+            *src.get(index)
+                .ok_or_else(|| "mozlz4 offset 越界".to_string())?,
             *src.get(index + 1)
                 .ok_or_else(|| "mozlz4 offset 越界".to_string())?,
         ]) as usize;
@@ -571,7 +583,8 @@ fn decode_mozlz4_bytes(data: &[u8]) -> std::result::Result<Vec<u8>, String> {
 }
 
 fn normalize_session_store_title(value: &str) -> String {
-    value.split(" - Mozilla Firefox")
+    value
+        .split(" - Mozilla Firefox")
         .next()
         .unwrap_or(value)
         .split(" - Firefox")
@@ -758,7 +771,9 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::psapi::GetModuleBaseNameW;
     use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
-    use winapi::um::winuser::{GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId};
+    use winapi::um::winuser::{
+        GetForegroundWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, RECT,
+    };
     // PROCESS_QUERY_LIMITED_INFORMATION 是 Vista+ 专为低权限场景设计的标志
     // 无需 PROCESS_VM_READ，对 UAC 保护进程、Store 应用等成功率远高于完整权限
     const PROCESS_QUERY_LIMITED: u32 = 0x1000;
@@ -877,11 +892,37 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
             None
         };
 
+        let window_bounds = {
+            let mut rect = RECT {
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+            };
+            if GetWindowRect(hwnd, &mut rect) != 0 {
+                let width = (rect.right - rect.left).max(0) as u32;
+                let height = (rect.bottom - rect.top).max(0) as u32;
+                if width > 0 && height > 0 {
+                    Some(WindowBounds {
+                        x: rect.left,
+                        y: rect.top,
+                        width,
+                        height,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
         Ok(ActiveWindow {
             app_name,
             window_title,
             browser_url,
             executable_path,
+            window_bounds,
         })
     }
 }
@@ -1213,16 +1254,19 @@ fn extract_url_from_title(window_title: &str) -> Option<String> {
 mod tests {
     use super::{
         best_browser_url_candidate_from_output, browser_url_system_events_process_name_macos,
-        browser_url_ui_script_macos, decode_mozlz4_bytes,
-        extract_active_tab_url_from_session_store_value, remember_browser_url_log,
-        firefox_family_profile_dir_from_ini,
-        categorize_app, extract_url_from_title, is_browser_app, is_probable_domain,
-        normalize_possible_url,
+        browser_url_ui_script_macos, categorize_app, categorize_app_with_rules,
+        decode_mozlz4_bytes, extract_active_tab_url_from_session_store_value,
+        extract_url_from_title, firefox_family_profile_dir_from_ini, is_browser_app,
+        is_probable_domain, normalize_possible_url, remember_browser_url_log,
     };
-    #[cfg(target_os = "macos")]
-    use std::{env, fs, process::Command, time::{SystemTime, UNIX_EPOCH}};
     use std::collections::HashMap;
     use std::path::Path;
+    #[cfg(target_os = "macos")]
+    use std::{
+        env, fs,
+        process::Command,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn 识别浏览器进程名() {
@@ -1242,6 +1286,33 @@ mod tests {
         assert_eq!(categorize_app("QQ Browser", "example.com"), "browser");
         assert_eq!(categorize_app("360 Browser", "example.com"), "browser");
         assert_eq!(categorize_app("Sogou Browser", "example.com"), "browser");
+    }
+
+    #[test]
+    fn 手动分类规则应优先于内置分类() {
+        let rules = vec![crate::config::AppCategoryRule {
+            app_name: "MuMu".to_string(),
+            category: "entertainment".to_string(),
+        }];
+
+        assert_eq!(
+            categorize_app_with_rules(&rules, "MuMu模拟器", "项目设计稿"),
+            "entertainment"
+        );
+        assert_eq!(categorize_app("MuMu模拟器", "项目设计稿"), "other");
+    }
+
+    #[test]
+    fn 手动分类规则匹配应兼容应用名归一化() {
+        let rules = vec![crate::config::AppCategoryRule {
+            app_name: "Firefox".to_string(),
+            category: "office".to_string(),
+        }];
+
+        assert_eq!(
+            categorize_app_with_rules(&rules, "firefox", "搜索页"),
+            "office"
+        );
     }
 
     #[test]
@@ -1361,8 +1432,8 @@ IsRelative=1
 Path=Profiles/wkm9x2lf.Default (release)
 "#;
 
-        let profile_dir =
-            firefox_family_profile_dir_from_ini(Path::new("/tmp/Zen"), ini).expect("应解析出默认 profile");
+        let profile_dir = firefox_family_profile_dir_from_ini(Path::new("/tmp/Zen"), ini)
+            .expect("应解析出默认 profile");
 
         assert_eq!(
             profile_dir,
@@ -1373,8 +1444,8 @@ Path=Profiles/wkm9x2lf.Default (release)
     #[test]
     fn mozlz4_字面量块应能解码() {
         let data = [
-            b'm', b'o', b'z', b'L', b'z', b'4', b'0', 0, 5, 0, 0, 0, 0x50, b'h', b'e', b'l',
-            b'l', b'o',
+            b'm', b'o', b'z', b'L', b'z', b'4', b'0', 0, 5, 0, 0, 0, 0x50, b'h', b'e', b'l', b'l',
+            b'o',
         ];
 
         let decoded = decode_mozlz4_bytes(&data).expect("应成功解码");
@@ -1384,8 +1455,8 @@ Path=Profiles/wkm9x2lf.Default (release)
     #[test]
     fn mozlz4_匹配块应能解码() {
         let data = [
-            b'm', b'o', b'z', b'L', b'z', b'4', b'0', 0, 9, 0, 0, 0, 0x32, b'a', b'b', b'c',
-            0x03, 0x00,
+            b'm', b'o', b'z', b'L', b'z', b'4', b'0', 0, 9, 0, 0, 0, 0x32, b'a', b'b', b'c', 0x03,
+            0x00,
         ];
 
         let decoded = decode_mozlz4_bytes(&data).expect("应成功解码");
@@ -1520,6 +1591,7 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
 
         let raw_app_name = parts.first().unwrap_or(&"Unknown").to_string();
         let window_title = parts.get(1).unwrap_or(&"").to_string();
+        let window_bounds = find_frontmost_window_bounds(&raw_app_name, &window_title);
 
         // 对 Electron 类应用进行名称规范化
         let app_name = normalize_electron_app_name(&raw_app_name, &window_title);
@@ -1536,9 +1608,150 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
             window_title,
             browser_url,
             executable_path: None,
+            window_bounds,
         })
     } else {
         Err(AppError::Screenshot("获取活动窗口失败".to_string()))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn find_frontmost_window_bounds(owner_name: &str, window_title: &str) -> Option<WindowBounds> {
+    use core_foundation::array::{CFArrayGetCount, CFArrayGetValueAtIndex};
+    use core_foundation::base::{CFRelease, CFTypeRef, TCFType};
+    use core_foundation::dictionary::CFDictionaryRef;
+    use core_foundation::number::CFNumberRef;
+    use core_foundation::string::CFString;
+    use core_graphics::display::{
+        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
+        CGWindowListCopyWindowInfo,
+    };
+
+    let owner_name = owner_name.trim();
+    if owner_name.is_empty() {
+        return None;
+    }
+
+    let target_owner = owner_name.to_lowercase();
+    let target_title = window_title.trim();
+
+    unsafe {
+        let window_list = CGWindowListCopyWindowInfo(
+            kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+            kCGNullWindowID,
+        );
+        if window_list.is_null() {
+            return None;
+        }
+
+        let count = CFArrayGetCount(window_list as _);
+        let mut fallback_match: Option<WindowBounds> = None;
+
+        for i in 0..count {
+            let dict = CFArrayGetValueAtIndex(window_list as _, i) as CFDictionaryRef;
+            if dict.is_null() {
+                continue;
+            }
+
+            let owner_key = CFString::new("kCGWindowOwnerName");
+            let mut owner_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                owner_key.as_CFTypeRef() as *const _,
+                &mut owner_ref,
+            ) == 0
+                || owner_ref.is_null()
+            {
+                continue;
+            }
+
+            let owner_cfstr =
+                core_foundation::string::CFString::wrap_under_get_rule(owner_ref as _);
+            let candidate_owner = owner_cfstr.to_string();
+            if candidate_owner.trim().to_lowercase() != target_owner {
+                continue;
+            }
+
+            let layer_key = CFString::new("kCGWindowLayer");
+            let mut layer_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                layer_key.as_CFTypeRef() as *const _,
+                &mut layer_ref,
+            ) == 0
+                || layer_ref.is_null()
+            {
+                continue;
+            }
+
+            let mut layer: i32 = 0;
+            if !core_foundation::number::CFNumberGetValue(
+                layer_ref as CFNumberRef,
+                core_foundation::number::kCFNumberSInt32Type,
+                &mut layer as *mut i32 as *mut _,
+            ) || layer != 0
+            {
+                continue;
+            }
+
+            let bounds_key = CFString::new("kCGWindowBounds");
+            let mut bounds_ref: CFTypeRef = std::ptr::null();
+            if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                bounds_key.as_CFTypeRef() as *const _,
+                &mut bounds_ref,
+            ) == 0
+                || bounds_ref.is_null()
+            {
+                continue;
+            }
+
+            let bounds_dict = bounds_ref as CFDictionaryRef;
+            let x = get_cf_dict_number(bounds_dict, "X").unwrap_or(0.0) as i32;
+            let y = get_cf_dict_number(bounds_dict, "Y").unwrap_or(0.0) as i32;
+            let width = get_cf_dict_number(bounds_dict, "Width")
+                .unwrap_or(0.0)
+                .max(0.0) as u32;
+            let height = get_cf_dict_number(bounds_dict, "Height")
+                .unwrap_or(0.0)
+                .max(0.0) as u32;
+            if width == 0 || height == 0 {
+                continue;
+            }
+
+            let candidate_bounds = WindowBounds {
+                x,
+                y,
+                width,
+                height,
+            };
+
+            let name_key = CFString::new("kCGWindowName");
+            let mut name_ref: CFTypeRef = std::ptr::null();
+            let candidate_title = if core_foundation::dictionary::CFDictionaryGetValueIfPresent(
+                dict,
+                name_key.as_CFTypeRef() as *const _,
+                &mut name_ref,
+            ) != 0
+                && !name_ref.is_null()
+            {
+                let name_cfstr =
+                    core_foundation::string::CFString::wrap_under_get_rule(name_ref as _);
+                name_cfstr.to_string()
+            } else {
+                String::new()
+            };
+
+            if !target_title.is_empty() && candidate_title.trim() == target_title {
+                CFRelease(window_list as _);
+                return Some(candidate_bounds);
+            }
+
+            fallback_match.get_or_insert(candidate_bounds);
+        }
+
+        CFRelease(window_list as _);
+        fallback_match
     }
 }
 
@@ -1698,7 +1911,10 @@ end tell"#,
         ))
     } else if app_lower.contains("firefox") {
         // Firefox 对 AppleScript 支持有限
-        Some((r#"tell application "Firefox" to get URL of front document"#, "Firefox"))
+        Some((
+            r#"tell application "Firefox" to get URL of front document"#,
+            "Firefox",
+        ))
     } else if app_lower.contains("edge") {
         Some((
             r#"tell application "Microsoft Edge"
@@ -1893,7 +2109,9 @@ fn best_browser_url_candidate_from_output(output: &str) -> Option<String> {
 
         let replace = best_match
             .as_ref()
-            .map(|(best_score, best_url)| score > *best_score || (score == *best_score && url.len() > best_url.len()))
+            .map(|(best_score, best_url)| {
+                score > *best_score || (score == *best_score && url.len() > best_url.len())
+            })
             .unwrap_or(true);
 
         if replace {
@@ -2025,6 +2243,7 @@ pub fn get_active_window_fast() -> Result<ActiveWindow> {
         window_title: "Unknown".to_string(),
         browser_url: None,
         executable_path: None,
+        window_bounds: None,
     })
 }
 
@@ -2220,6 +2439,7 @@ pub fn get_overlay_windows(frontmost_app: &str) -> Vec<ActiveWindow> {
                 window_title,
                 browser_url: None,
                 executable_path: None,
+                window_bounds: None,
             });
         }
 
@@ -2318,6 +2538,7 @@ pub fn get_visible_windows() -> Result<Vec<ActiveWindow>> {
                     window_title,
                     browser_url,
                     executable_path: None,
+                    window_bounds: None,
                 }
             })
             .collect();
@@ -2526,6 +2747,46 @@ pub fn categorize_app(app_name: &str, window_title: &str) -> String {
     }
 
     "other".to_string()
+}
+
+pub fn normalize_category_key(category: &str) -> String {
+    match category.trim().to_lowercase().as_str() {
+        "development" | "browser" | "communication" | "office" | "design" | "entertainment"
+        | "other" => category.trim().to_lowercase(),
+        _ => "other".to_string(),
+    }
+}
+
+fn normalized_app_rule_key(app_name: &str) -> String {
+    normalize_display_app_name(app_name).to_lowercase()
+}
+
+pub fn find_category_override(
+    rules: &[crate::config::AppCategoryRule],
+    app_name: &str,
+) -> Option<String> {
+    let normalized_app_name = normalized_app_rule_key(app_name);
+
+    rules.iter().find_map(|rule| {
+        let normalized_rule = normalized_app_rule_key(&rule.app_name);
+        if normalized_app_name == normalized_rule
+            || normalized_app_name.contains(&normalized_rule)
+            || normalized_rule.contains(&normalized_app_name)
+        {
+            Some(normalize_category_key(&rule.category))
+        } else {
+            None
+        }
+    })
+}
+
+pub fn categorize_app_with_rules(
+    rules: &[crate::config::AppCategoryRule],
+    app_name: &str,
+    window_title: &str,
+) -> String {
+    find_category_override(rules, app_name)
+        .unwrap_or_else(|| categorize_app(app_name, window_title))
 }
 
 /// 获取分类的中文名称

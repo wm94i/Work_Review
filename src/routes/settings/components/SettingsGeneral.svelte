@@ -91,6 +91,11 @@
     }
     dispatch('change', config);
   }
+
+  function toggleLightweightMode() {
+    config.lightweight_mode = !config.lightweight_mode;
+    dispatch('change', config);
+  }
 </script>
 
 <!-- 基本设置 -->
@@ -169,6 +174,21 @@
         class="switch-track {config.hide_dock_icon ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
       >
         <span class="switch-thumb {config.hide_dock_icon ? 'translate-x-5' : 'translate-x-0'}"></span>
+      </button>
+    </div>
+
+    <hr class="border-slate-200 dark:border-slate-700" />
+
+    <div class="flex items-center justify-between">
+      <div>
+        <div class="settings-text">轻量模式</div>
+        <div class="settings-muted mt-0.5">关闭主界面后释放 Webview，仅保留后台记录与托盘；重新打开主界面时会按需重建</div>
+      </div>
+      <button
+        on:click={toggleLightweightMode}
+        class="switch-track {config.lightweight_mode ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'}"
+      >
+        <span class="switch-thumb {config.lightweight_mode ? 'translate-x-5' : 'translate-x-0'}"></span>
       </button>
     </div>
   </div>

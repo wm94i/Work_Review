@@ -80,11 +80,36 @@ pub fn derive_avatar_state(
     is_idle: bool,
     is_generating_report: bool,
 ) -> AvatarStatePayload {
+    derive_avatar_state_with_rules(
+        &[],
+        app_name,
+        window_title,
+        browser_url,
+        is_idle,
+        is_generating_report,
+    )
+}
+
+pub fn derive_avatar_state_with_rules(
+    rules: &[crate::config::AppCategoryRule],
+    app_name: &str,
+    window_title: &str,
+    browser_url: Option<&str>,
+    is_idle: bool,
+    is_generating_report: bool,
+) -> AvatarStatePayload {
     let app_name = normalize_app_name(app_name);
     let title_lower = window_title.trim().to_lowercase();
     let url_lower = browser_url.unwrap_or_default().trim().to_lowercase();
-    let classification =
-        crate::activity_classifier::classify_activity(app_name.as_str(), window_title, browser_url);
+    let manual_base_category = crate::monitor::find_category_override(rules, app_name.as_str());
+    let base_category =
+        crate::monitor::categorize_app_with_rules(rules, app_name.as_str(), window_title);
+    let classification = crate::activity_classifier::classify_activity_with_base_category(
+        app_name.as_str(),
+        window_title,
+        browser_url,
+        &base_category,
+    );
 
     if is_generating_report {
         return AvatarStatePayload {
@@ -107,6 +132,57 @@ pub fn derive_avatar_state(
             is_idle: true,
             is_generating_report: false,
             avatar_opacity: AVATAR_OPACITY_DEFAULT,
+        };
+    }
+
+    if let Some(base_category) = manual_base_category.as_deref() {
+        return match base_category {
+            "development" => avatar_state(
+                "working",
+                app_name,
+                "编码中",
+                "先把这一段逻辑收住，再看下一处。",
+            ),
+            "browser" => {
+                let (context_label, hint) = if contains_any(
+                    &title_lower,
+                    &["文档", "readme", "docs", "guide", "manual", "wiki"],
+                ) || contains_any(
+                    &url_lower,
+                    &["/docs", "readme", "wiki", "developer.", "docs."],
+                ) {
+                    ("文档中", "先把文档结构看清，再动手修改。")
+                } else {
+                    ("阅读中", "正在吸收内容，先别打断节奏")
+                };
+
+                avatar_state("reading", app_name, context_label, hint)
+            }
+            "communication" => avatar_state(
+                "working",
+                app_name,
+                "沟通中",
+                "先把来回沟通收住，再继续推进。",
+            ),
+            "office" => avatar_state(
+                "working",
+                app_name,
+                "办公中",
+                "先把这一段事务处理完，再切换上下文。",
+            ),
+            "design" => avatar_state(
+                "working",
+                app_name,
+                "创作中",
+                "先把这一版想法落下来，再比较取舍。",
+            ),
+            "entertainment" => avatar_state(
+                "slacking",
+                app_name,
+                "休息中",
+                "放松可以，但别把节奏彻底丢掉。",
+            ),
+            _ => avatar_state("working", app_name, "办公中", "保持推进，先把这一段收住"),
         };
     }
 
@@ -135,14 +211,16 @@ pub fn derive_avatar_state(
             avatar_state("music", app_name, context_label, hint)
         }
         "视频内容" => {
-            let (context_label, hint) =
-                if contains_any(&title_lower, &["课程", "教程", "lesson", "training", "回放"]) {
-                    ("学习中", "先吸收这一段，再整理下一步动作。")
-                } else if contains_any(&title_lower, &["直播", "live"]) {
-                    ("直播中", "先看清实时信息，再判断是否介入。")
-                } else {
-                    ("视频中", "先看完这一段，再决定下一步。")
-                };
+            let (context_label, hint) = if contains_any(
+                &title_lower,
+                &["课程", "教程", "lesson", "training", "回放"],
+            ) {
+                ("学习中", "先吸收这一段，再整理下一步动作。")
+            } else if contains_any(&title_lower, &["直播", "live"]) {
+                ("直播中", "先看清实时信息，再判断是否介入。")
+            } else {
+                ("视频中", "先看完这一段，再决定下一步。")
+            };
 
             avatar_state("video", app_name, context_label, hint)
         }
@@ -150,8 +228,10 @@ pub fn derive_avatar_state(
             let (context_label, hint) = if contains_any(
                 &title_lower,
                 &["文档", "readme", "docs", "guide", "manual", "wiki"],
-            ) || contains_any(&url_lower, &["/docs", "readme", "wiki", "developer.", "docs."])
-            {
+            ) || contains_any(
+                &url_lower,
+                &["/docs", "readme", "wiki", "developer.", "docs."],
+            ) {
                 ("文档中", "先把文档结构看清，再动手修改。")
             } else {
                 ("阅读中", "正在吸收内容，先别打断节奏")
@@ -190,17 +270,18 @@ pub fn derive_avatar_state(
             avatar_state("working", app_name, context_label, hint)
         }
         "任务规划" => {
-            let (context_label, hint) = if contains_any(
-                &title_lower,
-                &["排期", "里程碑", "backlog", "sprint", "roadmap"],
-            ) || contains_any(&url_lower, &["linear.app", "jira", "atlassian.net"])
-            {
-                ("排期中", "先把节奏和先后顺序排清楚。")
-            } else if contains_any(&title_lower, &["待办", "任务", "看板", "board"]) {
-                ("拆解中", "先把任务拆细，再进入执行。")
-            } else {
-                ("规划中", "先把优先级排清楚，再进入执行。")
-            };
+            let (context_label, hint) =
+                if contains_any(
+                    &title_lower,
+                    &["排期", "里程碑", "backlog", "sprint", "roadmap"],
+                ) || contains_any(&url_lower, &["linear.app", "jira", "atlassian.net"])
+                {
+                    ("排期中", "先把节奏和先后顺序排清楚。")
+                } else if contains_any(&title_lower, &["待办", "任务", "看板", "board"]) {
+                    ("拆解中", "先把任务拆细，再进入执行。")
+                } else {
+                    ("规划中", "先把优先级排清楚，再进入执行。")
+                };
 
             avatar_state("working", app_name, context_label, hint)
         }
@@ -471,8 +552,10 @@ fn avatar_state(
 mod tests {
     use super::{
         avatar_window_size, clamp_avatar_position, default_avatar_state, derive_avatar_state,
-        resolve_avatar_position, Rect, AVATAR_WINDOW_HEIGHT, AVATAR_WINDOW_WIDTH,
+        derive_avatar_state_with_rules, resolve_avatar_position, Rect, AVATAR_WINDOW_HEIGHT,
+        AVATAR_WINDOW_WIDTH,
     };
+    use crate::config::AppCategoryRule;
 
     #[test]
     fn 空闲状态应优先进入待机模式() {
@@ -607,6 +690,24 @@ mod tests {
 
         assert_eq!(state.mode, "working");
         assert_eq!(state.context_label, "判断中");
+    }
+
+    #[test]
+    fn 手动分类规则应影响桌宠动作判断() {
+        let state = derive_avatar_state_with_rules(
+            &[AppCategoryRule {
+                app_name: "Steam".to_string(),
+                category: "design".to_string(),
+            }],
+            "Steam",
+            "首页",
+            None,
+            false,
+            false,
+        );
+
+        assert_eq!(state.mode, "working");
+        assert_eq!(state.context_label, "创作中");
     }
 
     #[test]
