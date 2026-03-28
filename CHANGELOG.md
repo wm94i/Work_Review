@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.25] - 2026-03-28
+## [1.0.26] - 2026-03-28
 
 ### 新增
 - 新增活动语义分类层：在基础应用分类之外补充 `编码开发`、`任务规划`、`资料调研`、`会议沟通` 等中文语义标签，并将语义分类结果与置信度写入活动记录。
@@ -16,11 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 修复桌宠动作过于单一的问题：同一状态下不再长期保持单一姿态，现会轮换不同主动作并补充更自然的停顿与节拍变化。
 - 修复桌宠在会议、视频、音乐、生成中等场景下表现不够准确的问题：补齐更多上下文对应的表情、爪子动作、尾巴节奏与过渡动作。
 - 修复桌宠相关测试与构建链路中的过时断言，避免新动作系统接入后被旧规则误判为异常。
+- 修复 `v1.0.25` 发布 tag 指向错误提交，导致 GitHub Release 未能提取对应的 `CHANGELOG.md` 内容。
+- 修复 `v1.0.25` 发布产物与 updater 元数据仍残留 `1.0.24` 版本号的问题，重新对齐 `package.json`、`Cargo.toml`、`tauri.conf.json` 与锁文件中的版本声明。
 
 ### 优化
 - 优化浏览器场景归类准确度：GitHub Pull Request、仓库文件页、Linear/Jira 看板、文档站和搜索结果页现会优先归入更贴合的语义类别，减少误判为泛浏览行为。
 - 优化桌宠动作编排：将固定节拍循环改为按状态动态调整节拍时长，并加入动作池与非均匀序列，降低机械感。
-- 统一版本号到 `1.0.25`，供 GitHub Release workflow 基于 tag 自动生成更新说明和 updater 清单。
+- 重新发布 `1.0.26`，确保 GitHub Actions 基于包含版本变更与更新说明的正确提交生成 Release 正文、安装包命名和 updater 清单。
+
+## [1.0.25] - 2026-03-28
+
+### 修复
+- 该版本发布时 tag 指向错误提交，导致 Release 正文、安装包命名和 updater 元数据未正确反映本次更新内容；对应功能变更已在 `1.0.26` 中重新发布。
 
 ## [1.0.24] - 2026-03-27
 

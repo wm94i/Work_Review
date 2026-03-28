@@ -50,7 +50,7 @@
   },
   "productName": "Work Review",
   "mainBinaryName": "Work_Review",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "identifier": "com.workreview.app",
   "plugins": {
     "updater": {
