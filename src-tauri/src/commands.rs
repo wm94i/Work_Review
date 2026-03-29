@@ -3069,6 +3069,15 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "requires_api_key": true,
             "supports_vision": false,
         }),
+        serde_json::json!({
+            "id": "minimax",
+            "name": "稀宇科技 MiniMax",
+            "description": "稀宇科技大语言模型",
+            "default_endpoint": "https://api.minimax.chat/v1",
+            "default_model": "MiniMax-M2.5",
+            "requires_api_key": true,
+            "supports_vision": false,
+        }),
     ])
 }
 

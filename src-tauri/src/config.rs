@@ -34,6 +34,9 @@ pub enum AiProvider {
     /// 火山引擎 豆包
     #[serde(rename = "doubao")]
     Doubao,
+    /// 稀宇科技 MiniMax
+    #[serde(rename = "minimax")]
+    MiniMax,
 }
 
 impl AiProvider {
@@ -50,6 +53,7 @@ impl AiProvider {
             AiProvider::Zhipu => "智谱 ChatGLM",
             AiProvider::Moonshot => "月之暗面 Kimi",
             AiProvider::Doubao => "火山引擎 豆包",
+            AiProvider::MiniMax => "稀宇科技 MiniMax",
         }
     }
 
@@ -66,6 +70,7 @@ impl AiProvider {
             AiProvider::Zhipu => "https://open.bigmodel.cn/api/paas/v4",
             AiProvider::Moonshot => "https://api.moonshot.cn/v1",
             AiProvider::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
+            AiProvider::MiniMax => "https://api.minimax.chat/v1",
         }
     }
 
@@ -82,6 +87,7 @@ impl AiProvider {
             AiProvider::Zhipu => "glm-4-flash",
             AiProvider::Moonshot => "moonshot-v1-8k",
             AiProvider::Doubao => "doubao-lite-4k",
+            AiProvider::MiniMax => "MiniMax-Text-01",
         }
     }
 
@@ -96,6 +102,7 @@ impl AiProvider {
                 | AiProvider::Zhipu
                 | AiProvider::Moonshot
                 | AiProvider::Doubao
+                | AiProvider::MiniMax
         )
     }
 }
