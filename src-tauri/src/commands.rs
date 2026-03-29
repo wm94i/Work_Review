@@ -2975,7 +2975,153 @@ async fn test_claude(
     }
 }
 
-/// 获取支持的 AI 提供商列表
+/// 获取模型列表
+#[tauri::command]
+pub async fn fetch_models(model_config: ModelConfig) -> Result<Vec<String>, AppError> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(8))
+        .build()
+        .map_err(|e| AppError::Unknown(e.to_string()))?;
+
+    let provider_config = AiProviderConfig {
+        provider: model_config.provider,
+        endpoint: model_config.endpoint,
+        api_key: model_config.api_key,
+        model: String::new(),
+        vision_model: None,
+    };
+
+    let models = match provider_config.provider {
+        AiProvider::Ollama => fetch_models_ollama(&client, &provider_config).await,
+        AiProvider::Gemini => fetch_models_gemini(&client, &provider_config).await,
+        AiProvider::Claude => fetch_models_claude(&client, &provider_config).await,
+        _ => fetch_models_openai(&client, &provider_config).await,
+    }
+    .map_err(|e| AppError::Unknown(e))?;
+
+    Ok(models)
+}
+
+/// 获取 Ollama 模型列表
+async fn fetch_models_ollama(
+    client: &reqwest::Client,
+    config: &AiProviderConfig,
+) -> Result<Vec<String>, String> {
+    let url = format!("{}/api/tags", config.endpoint);
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("无法连接到 Ollama: {e}"))?;
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {e}"))?;
+    let models = data["models"]
+        .as_array()
+        .ok_or("无法解析模型列表")?
+        .iter()
+        .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(models)
+}
+
+/// 获取 OpenAI 兼容格式的模型列表
+async fn fetch_models_openai(
+    client: &reqwest::Client,
+    config: &AiProviderConfig,
+) -> Result<Vec<String>, String> {
+    let api_key = config.api_key.as_ref().ok_or("未配置 API Key")?;
+    let url = format!("{}/models", config.endpoint);
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("API 错误: {text}"));
+    }
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {e}"))?;
+    let models = data["data"]
+        .as_array()
+        .ok_or("无法解析模型列表")?
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(models)
+}
+
+/// 获取 Gemini 模型列表
+async fn fetch_models_gemini(
+    client: &reqwest::Client,
+    config: &AiProviderConfig,
+) -> Result<Vec<String>, String> {
+    let api_key = config.api_key.as_ref().ok_or("未配置 API Key")?;
+    let url = format!("{}/models?key={}", config.endpoint, api_key);
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("API 错误: {text}"));
+    }
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {e}"))?;
+    let models = data["models"]
+        .as_array()
+        .ok_or("无法解析模型列表")?
+        .iter()
+        .filter_map(|m| {
+            m["name"]
+                .as_str()
+                .map(|s| s.strip_prefix("models/").unwrap_or(s).to_string())
+        })
+        .collect();
+    Ok(models)
+}
+
+/// 获取 Claude 模型列表
+async fn fetch_models_claude(
+    client: &reqwest::Client,
+    config: &AiProviderConfig,
+) -> Result<Vec<String>, String> {
+    let api_key = config.api_key.as_ref().ok_or("未配置 API Key")?;
+    let url = format!("{}/models", config.endpoint);
+    let resp = client
+        .get(&url)
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .await
+        .map_err(|e| format!("请求失败: {e}"))?;
+    if !resp.status().is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("API 错误: {text}"));
+    }
+    let data: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析响应失败: {e}"))?;
+    let models = data["data"]
+        .as_array()
+        .ok_or("无法解析模型列表")?
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    Ok(models)
+}
+
+/// 获取其他支持的 AI 提供商列表
 #[tauri::command]
 pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
     Ok(vec![

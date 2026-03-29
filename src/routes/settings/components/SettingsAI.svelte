@@ -39,6 +39,11 @@
   let textTestMessage = '';
   let textConnectionVerified = false;
   let showApiKey = false;
+
+  // 模型列表获取状态
+  let fetchingModels = false;
+  let modelList = [];
+  let fetchModelsError = '';
   
   const unsubscribe = aiStore.subscribe(state => {
     textTestStatus = state.textTestStatus;
@@ -91,6 +96,8 @@
     config.text_model.model = cached?.model || defaults.model;
     config.text_model.api_key = cached?.api_key || '';
     
+    modelList = [];
+    fetchModelsError = '';
     aiStore.reset();
     dispatch('change', config);
   }
@@ -102,6 +109,30 @@
       return; 
     }
     dispatch('change', config);
+  }
+
+  async function fetchModelList() {
+    fetchingModels = true;
+    fetchModelsError = '';
+    modelList = [];
+    try {
+      const result = await invoke('fetch_models', {
+        modelConfig: {
+          provider: config.text_model.provider,
+          endpoint: config.text_model.endpoint,
+          api_key: config.text_model.api_key || null,
+          model: '',
+        }
+      });
+      modelList = result || [];
+      if (modelList.length === 0) {
+        fetchModelsError = '未获取到模型列表，请检查网络连接或 API 配置';
+      }
+    } catch (e) {
+      fetchModelsError = e.toString();
+    } finally {
+      fetchingModels = false;
+    }
   }
 
   async function testTextModel() {
@@ -295,15 +326,56 @@
 
     <!-- 模型名称 -->
     <div>
-      <label for="ai-model" class="settings-label mb-1.5">模型名称</label>
-      <input
-        id="ai-model"
-        type="text"
-        bind:value={config.text_model.model}
-        on:change={handleChange}
-        class="control-input"
-        placeholder={currentProvider?.default_model || 'qwen2.5'}
-      />
+      <div class="flex items-end gap-2">
+        <div class="flex-1">
+          <label for="ai-model" class="settings-label mb-1.5">模型名称</label>
+          <input
+            id="ai-model"
+            type="text"
+            bind:value={config.text_model.model}
+            on:change={handleChange}
+            class="control-input"
+            placeholder={currentProvider?.default_model || 'qwen2.5'}
+          />
+        </div>
+        <button
+          type="button"
+          on:click={fetchModelList}
+          disabled={fetchingModels || !config.text_model.endpoint}
+          class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all
+                 settings-action-secondary
+                 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {#if fetchingModels}
+            <span class="inline-flex items-center gap-1">
+              <span class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+              获取中
+            </span>
+          {:else}
+            获取列表
+          {/if}
+        </button>
+      </div>
+      {#if fetchModelsError}
+        <p class="text-xs text-red-500 dark:text-red-400 mt-1.5">{fetchModelsError}</p>
+      {/if}
+      {#if modelList.length > 0}
+        <select
+          class="control-input mt-2"
+          value={config.text_model.model}
+          on:change={(e) => {
+            config.text_model.model = e.target.value;
+            aiStore.reset();
+            dispatch('change', config);
+          }}
+        >
+          <option value="" disabled>选择模型...</option>
+          {#each modelList as m}
+            <option value={m}>{m}</option>
+          {/each}
+        </select>
+        <p class="settings-note">共获取到 {modelList.length} 个可用模型</p>
+      {/if}
       {#if currentProvider?.description}
         <p class="settings-note">{currentProvider.description}</p>
       {/if}
