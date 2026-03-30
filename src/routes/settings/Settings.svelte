@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { cache } from '../../lib/stores/cache.js';
+  import { locale, t } from '$lib/i18n/index.js';
   import { showToast } from '../../lib/stores/toast.js';
 
   import SettingsGeneral from './components/SettingsGeneral.svelte';
@@ -21,16 +22,17 @@
   let dataDir = '';
   let defaultDataDir = '';
   let successTimer = null;
+  $: currentLocale = $locale;
 
   // 当前激活的标签
   let activeTab = 'general';
 
   const tabs = [
-    { id: 'general', label: '常规', icon: 'general' },
-    { id: 'ai', label: 'AI 模型', icon: 'ai' },
-    { id: 'appearance', label: '外观', icon: 'appearance' },
-    { id: 'privacy', label: '隐私', icon: 'privacy' },
-    { id: 'storage', label: '存储', icon: 'storage' },
+    { id: 'general', labelKey: 'settings.tabs.general', icon: 'general' },
+    { id: 'ai', labelKey: 'settings.tabs.ai', icon: 'ai' },
+    { id: 'appearance', labelKey: 'settings.tabs.appearance', icon: 'appearance' },
+    { id: 'privacy', labelKey: 'settings.tabs.privacy', icon: 'privacy' },
+    { id: 'storage', labelKey: 'settings.tabs.storage', icon: 'storage' },
   ];
 
   // 加载配置
@@ -135,7 +137,7 @@
       await invoke('save_config', { config });
       success = true;
       cache.setConfig(config);
-      showToast('设置已保存', 'success');
+      showToast(t('settings.saveSuccessToast'), 'success');
       
       clearTimeout(successTimer);
       successTimer = setTimeout(() => {
@@ -186,7 +188,7 @@
   });
 </script>
 
-<div class="page-shell">
+<div class="page-shell" data-locale={currentLocale}>
   <div class="page-header">
     <div class="page-title-group">
       <div class="page-title-badge">
@@ -196,8 +198,8 @@
         </svg>
       </div>
       <div class="page-title-copy">
-        <h2>设置</h2>
-        <p>应用配置与隐私规则</p>
+        <h2>{t('settings.title')}</h2>
+        <p>{t('settings.subtitle')}</p>
       </div>
     </div>
 
@@ -209,12 +211,12 @@
     >
       {#if saving}
         <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-        保存中...
+        {t('settings.saving')}
       {:else if success}
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-        已保存
+        {t('settings.saved')}
       {:else}
-        保存设置
+        {t('settings.save')}
       {/if}
     </button>
   </div>
@@ -226,10 +228,10 @@
   {:else if error}
     <div class="page-banner-error mb-6">
       <div>
-        <p class="font-semibold">加载配置失败</p>
+        <p class="font-semibold">{t('settings.loadError')}</p>
         <p class="text-sm mt-1">{error}</p>
       </div>
-      <button on:click={loadConfig} class="page-action-brand">重试</button>
+      <button on:click={loadConfig} class="page-action-brand">{t('settings.retry')}</button>
     </div>
   {:else if config}
     <div class="w-full">
@@ -254,7 +256,7 @@
             {:else if tab.icon === 'storage'}
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
             {/if}
-            <span>{tab.label}</span>
+            <span>{t(tab.labelKey)}</span>
           </button>
         {/each}
       </div>
@@ -265,8 +267,8 @@
         <SettingsGeneral bind:config on:change={() => {}} />
       {:else if activeTab === 'ai'}
         <div class="page-card">
-          <h3 class="settings-card-title">模型连接</h3>
-          <p class="settings-card-desc">配置当前默认模型，并管理多个可供助手页切换的连接</p>
+          <h3 class="settings-card-title">{t('settings.aiCardTitle')}</h3>
+          <p class="settings-card-desc">{t('settings.aiCardDescription')}</p>
           <SettingsAI bind:config {providers} on:change={() => {}} />
         </div>
       {:else if activeTab === 'appearance'}

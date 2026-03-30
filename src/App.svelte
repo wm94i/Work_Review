@@ -16,6 +16,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { cache, getLocalDate } from './lib/stores/cache.js';
+  import { applyLocaleToDocument, initializeLocale, locale } from '$lib/i18n/index.js';
   import { preloadAppIcons } from './lib/stores/iconCache.js';
   import { runUpdateFlow } from './lib/utils/updater.js';
 
@@ -116,6 +117,8 @@
   let backgroundOpacity = 0.25;
   let backgroundBlur = 1;
   let runtimeConfig = null;
+  let unsubscribeLocale = () => {};
+  $: currentLocale = $locale;
 
   function detectSystemTheme() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -178,6 +181,11 @@
     if (isAvatarWindow) {
       return () => {};
     }
+
+    initializeLocale();
+    unsubscribeLocale = locale.subscribe((nextLocale) => {
+      applyLocaleToDocument(nextLocale);
+    });
 
     let disposed = false;
     let cleanup = () => {};
@@ -283,7 +291,7 @@
             const existingReport = await invoke('get_saved_report', { date: today });
             if (!existingReport) {
               console.log('工作结束时间到达，自动生成日报...');
-              await invoke('generate_report', { date: today, force: false });
+              await invoke('generate_report', { date: today, force: false, locale: currentLocale });
               cache.invalidate('report', today);
               lastAutoGenDate = today;
               console.log('日报自动生成完成');
@@ -323,6 +331,7 @@
         unlisten();
         unlistenRecordingState();
         unlistenConfigChanged();
+        unsubscribeLocale();
         unsubscribeCache();
         clearTimeout(autoUpdateTimer);
         clearInterval(autoReportTimer);
@@ -426,7 +435,9 @@
   <!-- 右侧主内容区域 -->
   <div class="relative flex-1 flex flex-col overflow-hidden z-10 {platform !== 'macos' ? 'pt-7' : ''}">
     <main class="flex-1 overflow-auto">
-      <Router {routes} />
+      {#key currentLocale}
+        <Router {routes} />
+      {/key}
     </main>
     <Toast />
     <ConfirmDialog />

@@ -1,3 +1,5 @@
+import { t } from '../i18n/index.js';
+
 export const AVATAR_SCALE_MIN = 0.7;
 export const AVATAR_SCALE_MAX = 1.3;
 export const AVATAR_SCALE_DEFAULT = 0.9;
@@ -7,8 +9,8 @@ export const AVATAR_OPACITY_DEFAULT = 0.82;
 
 export function getAvatarToggleToast(enabled) {
   return enabled
-    ? '桌宠已显示，可在屏幕右下角附近查看'
-    : '桌宠已隐藏';
+    ? t('settingsAppearance.avatarShownToast')
+    : t('settingsAppearance.avatarHiddenToast');
 }
 
 export function getAvatarToggleUiState(enabled, saving = false) {
@@ -18,7 +20,9 @@ export function getAvatarToggleUiState(enabled, saving = false) {
       : 'bg-slate-300 hover:bg-slate-400 dark:bg-slate-600 dark:hover:bg-slate-500',
     thumbClass: enabled ? 'translate-x-5' : 'translate-x-0',
     buttonClass: saving ? 'cursor-wait opacity-80' : 'cursor-pointer',
-    ariaLabel: enabled ? '关闭桌面化身' : '开启桌面化身',
+    ariaLabel: enabled
+      ? t('settingsAppearance.avatarDisableAria')
+      : t('settingsAppearance.avatarEnableAria'),
   };
 }
 

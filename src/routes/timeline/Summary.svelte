@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { link } from 'svelte-spa-router';
+  import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
 
   function getLocalDateString() {
     const now = new Date();
@@ -12,6 +13,7 @@
   let error = null;
   let selectedDate = getLocalDateString();
   let lastLoadedDate = null;
+  $: currentLocale = $locale;
 
   // 格式化摘要内容：按逗号分隔成多行
   function formatSummary(text) {
@@ -39,7 +41,7 @@
   }
 </script>
 
-<div class="p-6 animate-fadeIn">
+<div class="p-6 animate-fadeIn" data-locale={currentLocale}>
   <!-- 页面头部 -->
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-3">
@@ -48,15 +50,18 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
       </a>
-      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">时段摘要</h2>
+      <h2 class="text-lg font-semibold text-slate-800 dark:text-white">{t('timelineSummary.title')}</h2>
     </div>
     
-    <input
-      type="date"
-      bind:value={selectedDate}
-      max={getLocalDateString()}
-      class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
-    />
+    {#key `timeline-summary-date-${currentLocale}`}
+      <input
+        type="date"
+        bind:value={selectedDate}
+        max={getLocalDateString()}
+        lang={currentLocale}
+        class="px-3 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+      />
+    {/key}
   </div>
 
   {#if loading}
@@ -70,7 +75,7 @@
   {:else if summaries.length === 0}
     <div class="card p-6 text-center">
       <span class="text-2xl">📊</span>
-      <p class="text-slate-500 dark:text-slate-400 text-sm mt-2">暂无数据</p>
+      <p class="text-slate-500 dark:text-slate-400 text-sm mt-2">{t('timelineSummary.noData')}</p>
     </div>
   {:else}
     <div class="space-y-3">
@@ -83,7 +88,7 @@
                 {String(summary.hour).padStart(2, '0')}:00
               </div>
               <div class="text-xs text-slate-400">
-                {Math.round(summary.total_duration / 60)}分钟
+                {formatDurationLocalized(summary.total_duration)}
               </div>
             </div>
             

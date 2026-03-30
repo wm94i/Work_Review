@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-shell';
   import { getVersion } from '@tauri-apps/api/app';
+  import { locale, t } from '$lib/i18n/index.js';
   import { runUpdateFlow } from '$lib/utils/updater.js';
 
   const wechatSponsorshipQr = new URL('../../../docs/sponsorship/vx.png', import.meta.url).href;
@@ -15,6 +16,7 @@
   let isSponsorshipOpen = false;
   let updateStatus = '';
   let updateStatusTimer = null;
+  $: currentLocale = $locale;
 
   onMount(async () => {
     try {
@@ -53,7 +55,7 @@
     if (isCheckingUpdate) return;
     
     isCheckingUpdate = true;
-    updateStatus = '正在检查更新...';
+    updateStatus = t('about.checkingUpdates');
 
     await runUpdateFlow({
       onStatusChange: (status) => {
@@ -84,7 +86,7 @@
 
 <svelte:window on:keydown={handleWindowKeydown} />
 
-<div class="page-shell">
+<div class="page-shell" data-locale={currentLocale}>
   <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
     <div class="page-card px-6 py-7 text-center sm:px-8">
       <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[linear-gradient(180deg,#eef2ff,#ffffff)] shadow-[0_14px_30px_rgba(99,102,241,0.12)] ring-1 ring-slate-200/80 dark:bg-[linear-gradient(180deg,rgba(49,46,129,0.5),rgba(15,23,42,0.96))] dark:ring-slate-700/70">
@@ -97,7 +99,7 @@
       </div>
 
       <p class="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-        记录工作过程、生成时间线和日报，所有核心数据默认仅保存在本机。
+        {t('about.description')}
       </p>
 
       <div class="mt-6 flex flex-col items-center gap-3">
@@ -108,7 +110,7 @@
           </button>
           <button on:click={openDataDir} class="page-action-secondary min-h-10 px-4 py-2">
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
-            <span class="leading-none">打开数据目录</span>
+            <span class="leading-none">{t('about.openDataDir')}</span>
           </button>
           <button
             type="button"
@@ -118,7 +120,7 @@
             <svg class="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400" fill="currentColor" viewBox="0 0 24 24">
               <path d="M11.996 21.357c-.34 0-.673-.092-.966-.267C8.304 19.466 2.25 15.48 2.25 9.806c0-3.034 2.395-5.556 5.47-5.556 1.708 0 3.31.78 4.276 2.074.966-1.293 2.567-2.074 4.275-2.074 3.074 0 5.48 2.522 5.48 5.556 0 5.674-6.054 9.66-8.78 11.284a1.88 1.88 0 0 1-.975.267Z" />
             </svg>
-            <span class="leading-none">赞助支持</span>
+            <span class="leading-none">{t('about.sponsorship')}</span>
           </button>
         </div>
 
@@ -133,10 +135,10 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span class="leading-none">检查中...</span>
+              <span class="leading-none">{t('about.checkingUpdates')}</span>
             {:else}
               <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-              <span class="leading-none">检查更新</span>
+              <span class="leading-none">{t('about.checkUpdates')}</span>
             {/if}
           </button>
         </div>
@@ -144,14 +146,14 @@
 
       <div class="mx-auto mt-6 w-full max-w-2xl rounded-2xl border border-slate-200/75 bg-slate-50/72 px-5 py-4 text-center dark:border-slate-700/75 dark:bg-slate-800/34">
         <div class="flex flex-col items-center gap-1">
-          <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">本地数据目录</h3>
-          <span class="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">Local Storage</span>
+          <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{t('about.dataDirTitle')}</h3>
+          <span class="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">{t('about.dataDirSubtitle')}</span>
         </div>
         <p class="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-          本地数据默认保存在这里，可在设置页“存储”中修改位置。
+          {t('about.dataDirDescription')}
         </p>
         <p class="mx-auto mt-3 max-w-xl break-all rounded-xl border border-slate-200/80 bg-white/86 px-4 py-3 font-mono text-[13px] leading-6 text-slate-700 dark:border-slate-700/80 dark:bg-slate-900/52 dark:text-slate-300">
-          {dataDir || '读取中...'}
+          {dataDir || t('about.loadingDataDir')}
         </p>
       </div>
 
@@ -166,7 +168,7 @@
     {#if updateStatus}
       <div class="page-banner-warning justify-center text-center">
         <div>
-          <p class="font-semibold">更新状态</p>
+          <p class="font-semibold">{t('about.updateStatus')}</p>
           <p class="text-sm mt-1">{updateStatus}</p>
         </div>
       </div>
@@ -182,7 +184,7 @@
       type="button"
       class="absolute inset-0 cursor-default"
       on:click={closeSponsorshipModal}
-      aria-label="关闭赞助弹层"
+      aria-label={t('about.closeSupportDialog')}
     ></button>
 
     <div
@@ -194,16 +196,16 @@
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold tracking-[0.14em] text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-            SUPPORT
+            {t('about.supportBadge')}
           </div>
           <h3 id="sponsorship-dialog-title" class="mt-3 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-            赞助支持
+            {t('about.supportTitle')}
           </h3>
           <p class="mt-3 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-            如果这个项目对你有帮助，帮你省了点时间，欢迎请我喝杯咖啡 ☕
+            {t('about.supportCopy')}
           </p>
           <p class="text-sm leading-7 text-slate-500 dark:text-slate-400">
-            你的支持会让我持续维护和改进这个项目～
+            {t('about.supportCopy2')}
           </p>
         </div>
 
@@ -211,7 +213,7 @@
           type="button"
           on:click={closeSponsorshipModal}
           class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
-          aria-label="关闭赞助弹层"
+          aria-label={t('about.closeSupportDialog')}
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m6 6 12 12M18 6 6 18" />
@@ -229,11 +231,11 @@
               </svg>
             </div>
             <div>
-              <h4 class="text-base font-semibold text-slate-900 dark:text-white">微信赞赏</h4>
+              <h4 class="text-base font-semibold text-slate-900 dark:text-white">{t('about.wechat')}</h4>
             </div>
           </div>
           <div class="mt-4 rounded-[24px] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-slate-950">
-            <img src={wechatSponsorshipQr} alt="微信赞赏收款码" class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
+            <img src={wechatSponsorshipQr} alt={t('about.wechatQrAlt')} class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
           </div>
         </div>
 
@@ -246,11 +248,11 @@
               </svg>
             </div>
             <div>
-              <h4 class="text-base font-semibold text-slate-900 dark:text-white">支付宝赞赏</h4>
+              <h4 class="text-base font-semibold text-slate-900 dark:text-white">{t('about.alipay')}</h4>
             </div>
           </div>
           <div class="mt-4 rounded-[24px] bg-white p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-slate-950">
-            <img src={alipaySponsorshipQr} alt="支付宝赞赏收款码" class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
+            <img src={alipaySponsorshipQr} alt={t('about.alipayQrAlt')} class="mx-auto aspect-square w-full max-w-[220px] rounded-2xl object-contain" />
           </div>
         </div>
       </div>

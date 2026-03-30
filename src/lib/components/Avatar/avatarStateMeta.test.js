@@ -22,20 +22,25 @@ test('桌宠状态元信息应为不同模式提供细节变化', () => {
 });
 
 test('桌宠状态切换气泡应返回短文案', () => {
-  assert.deepEqual(getAvatarStateBubble('meeting'), {
+  assert.deepEqual(getAvatarStateBubble('meeting', 'zh-CN'), {
     message: '开会中',
     tone: 'info',
     duration: 1800,
   });
-  assert.deepEqual(getAvatarStateBubble('music'), {
-    message: '听歌中',
+  assert.deepEqual(getAvatarStateBubble('music', 'zh-TW'), {
+    message: '聽歌中',
     tone: 'info',
     duration: 1800,
   });
-  assert.deepEqual(getAvatarStateBubble('generating'), {
-    message: '生成中',
+  assert.deepEqual(getAvatarStateBubble('generating', 'en'), {
+    message: 'Generating',
     tone: 'info',
     duration: 2000,
+  });
+  assert.deepEqual(getAvatarStateBubble('music', 'zh-CN'), {
+    message: '听歌中',
+    tone: 'info',
+    duration: 1800,
   });
   assert.equal(getAvatarStateBubble('unknown'), null);
 });

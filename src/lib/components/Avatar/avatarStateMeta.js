@@ -242,14 +242,46 @@ const MODE_VARIANTS = {
 };
 
 const STATE_BUBBLES = {
-  idle: { message: '待机中', tone: 'info', duration: 1600 },
-  working: { message: '办公中', tone: 'info', duration: 1800 },
-  reading: { message: '阅读中', tone: 'info', duration: 1800 },
-  meeting: { message: '开会中', tone: 'info', duration: 1800 },
-  music: { message: '听歌中', tone: 'info', duration: 1800 },
-  video: { message: '视频中', tone: 'info', duration: 1800 },
-  generating: { message: '生成中', tone: 'info', duration: 2000 },
-  slacking: { message: '摸鱼中', tone: 'info', duration: 1800 },
+  idle: {
+    'zh-CN': { message: '待机中', tone: 'info', duration: 1600 },
+    'zh-TW': { message: '待機中', tone: 'info', duration: 1600 },
+    en: { message: 'Idle', tone: 'info', duration: 1600 },
+  },
+  working: {
+    'zh-CN': { message: '办公中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '工作中', tone: 'info', duration: 1800 },
+    en: { message: 'Working', tone: 'info', duration: 1800 },
+  },
+  reading: {
+    'zh-CN': { message: '阅读中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '閱讀中', tone: 'info', duration: 1800 },
+    en: { message: 'Reading', tone: 'info', duration: 1800 },
+  },
+  meeting: {
+    'zh-CN': { message: '开会中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '開會中', tone: 'info', duration: 1800 },
+    en: { message: 'Meeting', tone: 'info', duration: 1800 },
+  },
+  music: {
+    'zh-CN': { message: '听歌中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '聽歌中', tone: 'info', duration: 1800 },
+    en: { message: 'Music', tone: 'info', duration: 1800 },
+  },
+  video: {
+    'zh-CN': { message: '视频中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '影片中', tone: 'info', duration: 1800 },
+    en: { message: 'Video', tone: 'info', duration: 1800 },
+  },
+  generating: {
+    'zh-CN': { message: '生成中', tone: 'info', duration: 2000 },
+    'zh-TW': { message: '生成中', tone: 'info', duration: 2000 },
+    en: { message: 'Generating', tone: 'info', duration: 2000 },
+  },
+  slacking: {
+    'zh-CN': { message: '摸鱼中', tone: 'info', duration: 1800 },
+    'zh-TW': { message: '摸魚中', tone: 'info', duration: 1800 },
+    en: { message: 'On break', tone: 'info', duration: 1800 },
+  },
 };
 
 const IDLE_MOTION_VARIANTS = {
@@ -730,8 +762,12 @@ export function getAvatarModeMeta(mode, contextLabel = '') {
   };
 }
 
-export function getAvatarStateBubble(mode) {
-  return STATE_BUBBLES[mode] || null;
+export function getAvatarStateBubble(mode, locale = 'zh-CN') {
+  const messageSet = STATE_BUBBLES[mode];
+  if (!messageSet) {
+    return null;
+  }
+  return messageSet[locale] || messageSet['zh-CN'] || null;
 }
 
 export function getAvatarActionLoopMeta(mode, contextLabel = '', beat = 0) {

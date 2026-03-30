@@ -1,5 +1,7 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
   import { appIconStore, getIconCacheKey, preloadAppIcons } from '../stores/iconCache.js';
   import { resolveAppIconSrc } from '../utils/appVisuals.js';
 
@@ -8,21 +10,17 @@
   // 订阅全局图标缓存
   let appIcons = {};
   const unsubIcons = appIconStore.subscribe(v => appIcons = v);
-
-  import { onDestroy } from 'svelte';
   onDestroy(() => unsubIcons());
 
   // 展开/收起状态
   const DEFAULT_COUNT = 8;
   let expanded = false;
+  $: currentLocale = $locale;
 
   // 格式化时长
   function formatDuration(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    if (hours > 0) return `${hours}h${minutes}m`;
-    if (minutes > 0) return `${minutes}m`;
-    return `${seconds}s`;
+    currentLocale;
+    return formatDurationLocalized(seconds, { compact: true });
   }
 
   // 颜色列表
@@ -48,7 +46,7 @@
   $: maxDuration = displayApps.length > 0 ? Math.max(...displayApps.map(a => a.duration)) : 1;
 </script>
 
-<div class="space-y-2">
+<div class="space-y-2" data-locale={currentLocale}>
   {#each displayApps as app, i}
     {@const iconSrc = resolveAppIconSrc(
       app.app_name,
@@ -82,7 +80,7 @@
       class="w-full text-center text-xs text-slate-400 hover:text-primary-500 dark:text-slate-500 dark:hover:text-primary-400 py-1 transition-colors"
       on:click={() => expanded = !expanded}
     >
-      {expanded ? '收起' : `展开全部 (${data.length} 个应用)`}
+      {expanded ? t('overview.appUsageCollapse') : t('overview.appUsageExpandAll', { count: data.length })}
     </button>
   {/if}
 </div>
