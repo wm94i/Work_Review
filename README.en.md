@@ -28,6 +28,7 @@ Work Review continuously records the apps you use, websites you visit, active wi
 - No manual check-ins
 - Overview, timeline, daily report, and assistant all share the same local data
 - You can jump from aggregate stats to concrete pages, titles, and screenshots
+- Supports Simplified Chinese, English, and Traditional Chinese UI, with daily reports generated and switched per current locale
 - Supports lightweight mode, hourly activity views, Markdown report export, and multi-display screenshot strategies
 - Includes `Desktop Avatar Beta` for lightweight presence feedback while you work
 
@@ -67,7 +68,7 @@ Work Review is closer to a personal work-trace system:
 | Time-range understanding | Understands “yesterday”, “this week”, or “last 3 days” |
 | Session grouping | Groups fragmented actions into longer work sessions |
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
-| Daily report | Generates structured reports with history view, hourly activity summaries, and Markdown export |
+| Daily report | Generates structured reports with history view, hourly activity summaries, Markdown export, and locale-aware report switching |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
 | Desktop Avatar Beta | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating |
 
@@ -116,7 +117,7 @@ The desktop avatar floats on the desktop and gives lightweight state feedback in
 | **Overview** | Aggregated totals, work duration, browser usage, websites, hourly activity, and app distribution |
 | **Timeline** | Replay windows, screenshots, OCR, and visited pages by time |
 | **Assistant** | Ask natural-language questions against your recorded work trail |
-| **Report** | Generate, review, and export daily reports |
+| **Report** | Generate, review, switch, and export daily reports based on the current UI language |
 | **Settings** | Manage tracking, privacy, AI, avatar, lightweight mode, storage, and updates |
 
 ---
