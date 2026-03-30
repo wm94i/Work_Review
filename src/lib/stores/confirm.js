@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { t } from '$lib/i18n/index.js';
 
 const { subscribe, set } = writable(null);
 
@@ -25,10 +26,10 @@ export function confirm(options = {}) {
 
   const state = {
     id: currentId,
-    title: options.title?.trim() || '提示',
+    title: options.title?.trim() || t('common.notice'),
     message: options.message?.trim() || '',
-    confirmText: options.confirmText?.trim() || '确定',
-    cancelText: options.cancelText?.trim() || '取消',
+    confirmText: options.confirmText?.trim() || t('common.confirm'),
+    cancelText: options.cancelText?.trim() || t('common.cancel'),
     tone: options.tone || 'info',
   };
 

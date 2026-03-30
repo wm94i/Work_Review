@@ -1,36 +1,13 @@
 <script>
+  import { locale, formatDurationLocalized, t } from '$lib/i18n/index.js';
+
   export let data = [];
 
   const keyHours = [0, 6, 12, 18, 23];
+  $: currentLocale = $locale;
 
   function formatHourLabel(hour) {
     return `${String(hour).padStart(2, '0')}:00`;
-  }
-
-  function formatDuration(seconds) {
-    if (!seconds || seconds <= 0) return '0分钟';
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-
-    if (hours > 0) {
-      return minutes > 0 ? `${hours}小时${minutes}分钟` : `${hours}小时`;
-    }
-
-    return `${Math.max(minutes, 1)}分钟`;
-  }
-
-  function formatCompactDuration(seconds) {
-    if (!seconds || seconds <= 0) return '0分钟';
-
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-
-    if (hours > 0) {
-      return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
-    }
-
-    return `${Math.max(minutes, 1)}m`;
   }
 
   function showHourLabel(hour) {
@@ -54,30 +31,30 @@
     .slice(0, 3);
 </script>
 
-<div class="space-y-4">
+<div class="space-y-4" data-locale={currentLocale}>
   <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
     <div class="min-h-[104px] rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-800/80">
-      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">高峰时段</p>
+      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">{t('hourlyChart.peakHour')}</p>
       <p class="mt-5 text-[1.8rem] font-semibold tracking-tight text-slate-800 dark:text-white">
         {formatHourLabel(peakBucket.hour)}
       </p>
     </div>
     <div class="min-h-[104px] rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-800/80">
-      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">峰值时长</p>
+      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">{t('hourlyChart.peakDuration')}</p>
       <p class="mt-5 text-[1.8rem] font-semibold tracking-tight text-slate-800 dark:text-white">
-        {formatCompactDuration(peakBucket.duration)}
+        {formatDurationLocalized(peakBucket.duration, { compact: true })}
       </p>
     </div>
     <div class="min-h-[104px] rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-800/80">
-      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">活跃小时</p>
+      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">{t('hourlyChart.activeHours')}</p>
       <p class="mt-5 text-[1.8rem] font-semibold tracking-tight text-slate-800 dark:text-white">
         {activeBuckets.length}
       </p>
     </div>
     <div class="min-h-[104px] rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-800/80">
-      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">累计时长</p>
+      <p class="text-[13px] font-medium text-slate-400 dark:text-slate-500">{t('hourlyChart.totalDuration')}</p>
       <p class="mt-5 text-[1.8rem] font-semibold tracking-tight text-slate-800 dark:text-white">
-        {formatCompactDuration(totalDuration)}
+        {formatDurationLocalized(totalDuration, { compact: true })}
       </p>
     </div>
   </div>
@@ -85,16 +62,19 @@
   <div class="rounded-2xl border border-slate-100 bg-white p-4 dark:border-slate-700/60 dark:bg-slate-800/80">
     <div class="mb-4 flex items-center justify-between gap-3">
       <div>
-        <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">今日 24 小时活动分布</p>
+        <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('hourlyChart.distributionTitle')}</p>
         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          高峰集中在 {formatHourLabel(peakBucket.hour)}，该小时累计 {formatDuration(peakBucket.duration)}
+          {t('hourlyChart.distributionSubtitle', {
+            hour: formatHourLabel(peakBucket.hour),
+            duration: formatDurationLocalized(peakBucket.duration),
+          })}
         </p>
       </div>
       {#if topBuckets.length > 0}
         <div class="hidden items-center gap-2 lg:flex">
           {#each topBuckets as bucket, index}
             <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500 dark:bg-slate-700/70 dark:text-slate-300">
-              TOP {index + 1} · {formatHourLabel(bucket.hour)}
+              {t('hourlyChart.topHour', { index: index + 1, hour: formatHourLabel(bucket.hour) })}
             </span>
           {/each}
         </div>
@@ -116,7 +96,7 @@
             <div
               class={`w-full rounded-t-[10px] transition-all duration-300 ${isPeak ? 'bg-sky-500 dark:bg-sky-400' : 'bg-slate-300 dark:bg-slate-600'}`}
               style={`height: ${height}%; opacity: ${bucket.duration > 0 ? 1 : 0.35};`}
-              title={`${formatHourLabel(bucket.hour)} · ${formatDuration(bucket.duration)}`}
+              title={`${formatHourLabel(bucket.hour)} · ${formatDurationLocalized(bucket.duration)}`}
             ></div>
           </div>
         {/each}

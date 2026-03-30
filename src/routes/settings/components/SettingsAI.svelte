@@ -2,31 +2,117 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { aiStore } from '$lib/stores/ai.js';
+  import { locale, t } from '$lib/i18n/index.js';
   
   export let config;
   export let providers = [];
   
   const dispatch = createEventDispatcher();
+  $: currentLocale = $locale;
+  let aiModes = [];
+  let localizedProviders = [];
   
   // 日报生成模式：基础模板 vs AI 增强
-  const aiModes = [
+  const aiModeConfigs = [
     { 
       value: 'local', 
-      label: '基础模板', 
-      description: '固定格式统计报告',
+      labelKey: 'settingsAI.modeLocal',
+      descriptionKey: 'settingsAI.modeLocalDesc',
       requiresText: false
     },
     { 
       value: 'summary', 
-      label: 'AI 增强', 
-      description: '调用 AI 生成智能总结',
+      labelKey: 'settingsAI.modeSummary',
+      descriptionKey: 'settingsAI.modeSummaryDesc',
       requiresText: true
     },
   ];
+  $: {
+    currentLocale;
+    aiModes = aiModeConfigs.map((mode) => ({
+      ...mode,
+      label: t(mode.labelKey),
+      description: t(mode.descriptionKey),
+    }));
+  }
+
+  const providerLabels = {
+    ollama: {
+      'zh-CN': { name: 'Ollama (本地)', description: '在本机运行的开源大模型，数据不出本机' },
+      en: { name: 'Ollama (Local)', description: 'Runs open models on your device, with data staying local' },
+      'zh-TW': { name: 'Ollama（本機）', description: '在本機執行開源模型，資料不會離開本機' },
+    },
+    openai: {
+      'zh-CN': { name: 'OpenAI / 兼容API', description: '支持 OpenAI 官方及兼容 API（Azure、Cloudflare 等）' },
+      en: { name: 'OpenAI / Compatible API', description: 'Supports official OpenAI APIs and compatible endpoints such as Azure or Cloudflare' },
+      'zh-TW': { name: 'OpenAI / 相容 API', description: '支援 OpenAI 官方與相容 API（Azure、Cloudflare 等）' },
+    },
+    siliconflow: {
+      'zh-CN': { name: '硅基流动 SiliconFlow', description: '国内高性价比 API，兼容 OpenAI 格式' },
+      en: { name: 'SiliconFlow', description: 'Cost-effective domestic API with OpenAI-compatible format' },
+      'zh-TW': { name: '矽基流動 SiliconFlow', description: '高性價比 API，支援 OpenAI 相容格式' },
+    },
+    deepseek: {
+      'zh-CN': { name: 'DeepSeek', description: '国产开源模型，性能强劲，兼容 OpenAI 格式' },
+      en: { name: 'DeepSeek', description: 'Powerful open-source domestic model with OpenAI-compatible format' },
+      'zh-TW': { name: 'DeepSeek', description: '高效能開源模型，支援 OpenAI 相容格式' },
+    },
+    qwen: {
+      'zh-CN': { name: '通义千问 Qwen', description: '阿里云通义大模型，兼容 OpenAI 格式' },
+      en: { name: 'Qwen', description: 'Alibaba Tongyi model with OpenAI-compatible format' },
+      'zh-TW': { name: '通義千問 Qwen', description: '阿里雲通義模型，支援 OpenAI 相容格式' },
+    },
+    zhipu: {
+      'zh-CN': { name: '智谱 ChatGLM', description: '智谱 AI 大模型' },
+      en: { name: 'Zhipu ChatGLM', description: 'Large language models from Zhipu AI' },
+      'zh-TW': { name: '智譜 ChatGLM', description: '智譜 AI 大模型' },
+    },
+    moonshot: {
+      'zh-CN': { name: '月之暗面 Kimi', description: 'Moonshot AI，擅长长文本' },
+      en: { name: 'Moonshot Kimi', description: 'Moonshot AI models optimized for long-context tasks' },
+      'zh-TW': { name: '月之暗面 Kimi', description: 'Moonshot AI，擅長長文本' },
+    },
+    doubao: {
+      'zh-CN': { name: '火山引擎 豆包', description: '字节跳动大模型' },
+      en: { name: 'Doubao', description: 'Large language models from Volcano Engine / ByteDance' },
+      'zh-TW': { name: '火山引擎 豆包', description: '字節跳動大模型' },
+    },
+    minimax: {
+      'zh-CN': { name: '稀宇科技 MiniMax', description: 'MiniMax 文本模型，兼容 OpenAI 格式' },
+      en: { name: 'MiniMax', description: 'MiniMax text models with OpenAI-compatible format' },
+      'zh-TW': { name: '稀宇科技 MiniMax', description: 'MiniMax 文字模型，支援 OpenAI 相容格式' },
+    },
+    gemini: {
+      'zh-CN': { name: 'Google Gemini', description: 'Google 的 Gemini 系列模型' },
+      en: { name: 'Google Gemini', description: 'Google Gemini family models' },
+      'zh-TW': { name: 'Google Gemini', description: 'Google 的 Gemini 系列模型' },
+    },
+    claude: {
+      'zh-CN': { name: 'Anthropic Claude', description: 'Anthropic 的 Claude 系列模型' },
+      en: { name: 'Anthropic Claude', description: 'Anthropic Claude family models' },
+      'zh-TW': { name: 'Anthropic Claude', description: 'Anthropic 的 Claude 系列模型' },
+    },
+  };
+
+  function getLocalizedProvider(provider) {
+    const localized = providerLabels[provider?.id]?.[currentLocale];
+    if (!localized) {
+      return provider;
+    }
+    return {
+      ...provider,
+      name: localized.name,
+      description: localized.description,
+    };
+  }
+  $: {
+    currentLocale;
+    localizedProviders = providers.map(getLocalizedProvider);
+  }
 
   // 提供商默认配置
   function getProviderDefaults(providerId) {
-    const provider = providers.find(p => p.id === providerId);
+    const provider = localizedProviders.find(p => p.id === providerId);
     return {
       endpoint: provider?.default_endpoint || '',
       model: provider?.default_model || '',
@@ -56,7 +142,7 @@
   $: hasTextModelConfig = !!(config?.text_model?.endpoint && config?.text_model?.model);
 
   // 当前提供商
-  $: currentProvider = providers.find(p => p.id === config?.text_model?.provider) || providers[0];
+  $: currentProvider = localizedProviders.find(p => p.id === config?.text_model?.provider) || localizedProviders[0];
   $: requiresApiKey = currentProvider?.requires_api_key ?? true;
   $: isOllamaProvider = config?.text_model?.provider === 'ollama';
   $: selectedOllamaModel = ollamaModels.includes(config?.text_model?.model || '')
@@ -113,10 +199,14 @@
   function handleChange() {
     // 阻止派发含有未验证文本模型的配置
     if (config.ai_mode === 'summary' && !isTextModelConfigured) {
-      aiStore.setError("必须先完成 API 连接测试才能保存");
+      aiStore.setError(t('settingsAI.saveRequiresVerifiedModel'));
       return; 
     }
     dispatch('change', config);
+  }
+
+  function shouldHideRawMessage(message) {
+    return currentLocale === 'en' && /[\u4e00-\u9fff]/.test(message);
   }
 
   async function testTextModel() {
@@ -131,12 +221,26 @@
         }
       });
       if (result.success) {
-        aiStore.setSuccess(result.message + (result.response_time_ms ? ` (${result.response_time_ms}ms)` : '') + '，请点击右上角保存设置');
+        aiStore.setSuccess(
+          result.response_time_ms
+            ? t('settingsAI.saveAfterTestWithLatency', { ms: result.response_time_ms })
+            : t('settingsAI.saveAfterTest')
+        );
       } else {
-        aiStore.setError(result.message);
+        const failureMessage = String(result?.message || '').trim();
+        aiStore.setError(
+          failureMessage && !shouldHideRawMessage(failureMessage)
+            ? failureMessage
+            : t('settingsAI.genericTestFailed')
+        );
       }
     } catch (e) {
-      aiStore.setError(e.toString());
+      const failureMessage = String(e || '').trim();
+      aiStore.setError(
+        failureMessage && !shouldHideRawMessage(failureMessage)
+          ? failureMessage
+          : t('settingsAI.genericTestFailed')
+      );
     }
   }
 
@@ -148,10 +252,10 @@
     const currentModel = config?.text_model?.model?.trim();
     if (currentModel) {
       return ollamaModelsLoading
-        ? `当前配置：${currentModel}（正在刷新模型列表...）`
-        : `当前配置：${currentModel}（未获取到 Ollama 模型）`;
+        ? t('settingsAI.currentModelLoading', { model: currentModel })
+        : t('settingsAI.currentModelMissing', { model: currentModel });
     }
-    return ollamaModelsLoading ? '正在加载模型列表...' : '暂无模型，可手动输入';
+    return ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.noModels');
   }
 
   function hasManualOllamaModelOutsideList() {
@@ -181,8 +285,8 @@
       });
       ollamaModels = Array.isArray(models) ? models : [];
       ollamaModelsHint = ollamaModels.length > 0
-        ? `已获取 ${ollamaModels.length} 个模型`
-        : '未获取到可用模型';
+        ? t('settingsAI.loadedModels', { count: ollamaModels.length })
+        : t('settingsAI.noModelsFound');
       if (
         ollamaModels.length > 0 &&
         (
@@ -234,8 +338,8 @@
 
 <!-- 日报模式切换：紧凑的分段控制 -->
 <!-- 模式选择与连接状态解耦，用户可先选模式再配置模型 -->
-<fieldset class="mb-5">
-  <legend class="settings-label mb-2">日报模式</legend>
+<fieldset class="mb-5" data-locale={currentLocale}>
+  <legend class="settings-label mb-2">{t('settingsAI.modeLegend')}</legend>
   <div class="flex gap-2">
     {#each aiModes as mode}
       {@const isSelected = config.ai_mode === mode.value}
@@ -245,7 +349,7 @@
           // 仅当切换需要文字模型且未配置或测试失败时，给提示并阻止向父组件发送 change（避免自动保存未验证状态）
           if (mode.requiresText && !isTextModelConfigured) {
             config.ai_mode = mode.value; // 允许 UI 切换展开面板
-            aiStore.setError("请先配置并测试 AI 模型连接");
+            aiStore.setError(t('settingsAI.switchRequiresVerifiedModel'));
             // 不触发 handleChange()，防止父组件认为配置已完备
           } else {
             config.ai_mode = mode.value; 
@@ -272,14 +376,14 @@
     <!-- 提供商 + 测试按钮 -->
     <div class="flex items-end gap-2">
       <div class="flex-1">
-        <label for="ai-provider" class="settings-label mb-1.5">提供商</label>
+        <label for="ai-provider" class="settings-label mb-1.5">{t('settingsAI.provider')}</label>
         <select
           id="ai-provider"
           value={config.text_model?.provider || 'ollama'}
           on:change={handleProviderChange}
           class="control-input"
         >
-          {#each providers as provider}
+          {#each localizedProviders as provider}
             <option value={provider.id}>{provider.name}</option>
           {/each}
         </select>
@@ -298,16 +402,16 @@
                disabled:opacity-40 disabled:cursor-not-allowed"
       >
         {#if textTestStatus === 'testing'}
-          <span class="inline-flex items-center gap-1">
-            <span class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
-            测试中
+            <span class="inline-flex items-center gap-1">
+              <span class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+            {t('settingsAI.testing')}
           </span>
         {:else if textTestStatus === 'success'}
-          ✓ 连接成功
+          ✓ {t('settingsAI.testSuccess')}
         {:else if textTestStatus === 'error'}
-          ✗ 连接失败
+          ✗ {t('settingsAI.testFailed')}
         {:else}
-          测试连接
+          {t('settingsAI.testConnection')}
         {/if}
       </button>
     </div>
@@ -321,7 +425,7 @@
 
     <!-- API 地址 -->
     <div>
-      <label for="ai-endpoint" class="settings-label mb-1.5">API 地址</label>
+      <label for="ai-endpoint" class="settings-label mb-1.5">{t('settingsAI.endpoint')}</label>
       <input
         id="ai-endpoint"
         type="text"
@@ -335,7 +439,7 @@
     <!-- API 密钥（按需显示） -->
     {#if requiresApiKey}
       <div>
-        <label for="ai-apikey" class="settings-label mb-1.5">API 密钥</label>
+        <label for="ai-apikey" class="settings-label mb-1.5">{t('settingsAI.apiKey')}</label>
         <div class="relative">
           {#if showApiKey}
             <input
@@ -359,8 +463,8 @@
           <button
             type="button"
             class="absolute inset-y-0 right-3 inline-flex items-center justify-center text-slate-400 transition hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
-            aria-label={showApiKey ? '隐藏 API 密钥' : '显示 API 密钥'}
-            title={showApiKey ? '隐藏 API 密钥' : '显示 API 密钥'}
+            aria-label={showApiKey ? t('settingsAI.hideApiKey') : t('settingsAI.showApiKey')}
+            title={showApiKey ? t('settingsAI.hideApiKey') : t('settingsAI.showApiKey')}
             on:click={() => {
               showApiKey = !showApiKey;
             }}
@@ -378,7 +482,7 @@
     <div>
       <div class="flex items-end gap-2">
         <div class="flex-1">
-          <label for="ai-model" class="settings-label mb-1.5">模型名称</label>
+          <label for="ai-model" class="settings-label mb-1.5">{t('settingsAI.model')}</label>
           {#if isOllamaProvider}
             {#key `${selectedOllamaModel}|${config?.text_model?.model || ''}|${ollamaModels.join('|')}|${ollamaModelsLoading}`}
               <select
@@ -389,13 +493,13 @@
                 disabled={ollamaModelsLoading || getOllamaModelOptions().length === 0}
               >
                 {#if getOllamaModelOptions().length === 0}
-                  <option value="">
-                    {getOllamaFallbackOptionLabel()}
-                  </option>
+                    <option value="">
+                      {getOllamaFallbackOptionLabel()}
+                    </option>
                 {:else}
                   {#if hasManualOllamaModelOutsideList()}
                     <option value="" disabled>
-                      当前手动输入的模型不在 Ollama 列表中
+                      {t('settingsAI.manualModelMissing')}
                     </option>
                   {/if}
                   {#each ollamaModels as model (model)}
@@ -423,14 +527,14 @@
             disabled={ollamaModelsLoading || !config.text_model.endpoint}
             class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {ollamaModelsLoading ? '加载中...' : '刷新模型列表'}
+            {ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.refreshModels')}
           </button>
         {/if}
       </div>
 
       {#if isOllamaProvider}
         <div class="mt-3">
-          <label for="ai-model-manual" class="settings-label mb-1.5">手动输入模型名称</label>
+          <label for="ai-model-manual" class="settings-label mb-1.5">{t('settingsAI.manualModel')}</label>
           <input
             id="ai-model-manual"
             type="text"
@@ -443,9 +547,9 @@
         {#if ollamaModelsError}
           <p class="settings-note text-rose-500 dark:text-rose-400">{ollamaModelsError}</p>
         {:else if ollamaModelsHint}
-          <p class="settings-note">{ollamaModelsHint}，下拉选择失败时仍可手动输入。</p>
+          <p class="settings-note">{t('settingsAI.modelHint', { hint: ollamaModelsHint })}</p>
         {:else}
-          <p class="settings-note">仅对 Ollama 提供模型列表，下拉选择失败时仍可手动输入。</p>
+          <p class="settings-note">{t('settingsAI.ollamaHint')}</p>
         {/if}
       {:else if currentProvider?.description}
         <p class="settings-note">{currentProvider.description}</p>
@@ -455,6 +559,6 @@
 {:else}
   <!-- 未启用 AI 模式时的提示 -->
   <div class="pt-3 border-t border-slate-200 dark:border-slate-700">
-    <p class="settings-empty">切换到「AI 增强」模式后可配置 AI 模型</p>
+    <p class="settings-empty">{t('settingsAI.aiModeDisabled')}</p>
   </div>
 {/if}

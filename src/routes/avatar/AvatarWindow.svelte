@@ -1,10 +1,12 @@
 <script>
   import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import AvatarCanvas from '../../lib/components/Avatar/AvatarCanvas.svelte';
   import AvatarPopover from '../../lib/components/Avatar/AvatarPopover.svelte';
+  import { applyLocaleToDocument, initializeLocale, locale } from '$lib/i18n/index.js';
   import {
     getAvatarMotionStepDelay,
     getAvatarStateBubble,
@@ -23,6 +25,7 @@
     isGeneratingReport: false,
     avatarOpacity: 0.82,
   };
+  let bubbleSource = null;
   let bubble = null;
   let bubbleTimer = null;
   let lastStateBubbleAt = 0;
@@ -32,12 +35,55 @@
   let motionTimer = null;
   let positionSaveTimer = null;
   let lastSavedPositionKey = null;
+  let unsubscribeLocale = () => {};
+  let unlistenLocaleChanged = () => {};
+  $: currentLocale = $locale;
+
+  const RUNTIME_BUBBLE_MESSAGES = {
+    '先放松一下，待会再继续推进。': {
+      'zh-CN': '先放松一下，待会再继续推进。',
+      'zh-TW': '先放鬆一下，待會再繼續推進。',
+      en: 'Take a short break, then continue when you are ready.',
+    },
+    '开始整理日报，稍等我一下。': {
+      'zh-CN': '开始整理日报，稍等我一下。',
+      'zh-TW': '開始整理日報，稍等我一下。',
+      en: "I'm preparing your daily report. Give me a moment.",
+    },
+    '日报整理好了，可以回来看看。': {
+      'zh-CN': '日报整理好了，可以回来看看。',
+      'zh-TW': '日報整理好了，可以回來看看。',
+      en: 'Your daily report is ready. You can check it now.',
+    },
+    '这次日报整理失败了，稍后可以再试。': {
+      'zh-CN': '这次日报整理失败了，稍后可以再试。',
+      'zh-TW': '這次日報整理失敗了，稍後可以再試。',
+      en: 'This report run failed. Please try again later.',
+    },
+  };
+
+  function localizeBubblePayload(payload, nextLocale = currentLocale) {
+    if (!payload) {
+      return null;
+    }
+
+    const localizedMessage =
+      RUNTIME_BUBBLE_MESSAGES[payload.message]?.[nextLocale]
+      || payload.message;
+
+    return {
+      ...payload,
+      message: localizedMessage,
+    };
+  }
+
+  $: bubble = localizeBubblePayload(bubbleSource, currentLocale);
 
   function showBubble(payload) {
-    bubble = payload;
+    bubbleSource = payload;
     clearTimeout(bubbleTimer);
     bubbleTimer = setTimeout(() => {
-      bubble = null;
+      bubbleSource = null;
       bubbleTimer = null;
     }, payload?.duration ?? 4200);
   }
@@ -99,6 +145,10 @@
     let unlistenState = () => {};
     let unlistenBubble = () => {};
     let unlistenMoved = () => {};
+    initializeLocale();
+    unsubscribeLocale = locale.subscribe((nextLocale) => {
+      applyLocaleToDocument(nextLocale);
+    });
     scheduleNextMotionStep();
 
     (async () => {
@@ -110,7 +160,7 @@
 
       unlistenState = await appWindow.listen('avatar-state-changed', (event) => {
         const nextState = event.payload;
-        const stateBubble = getAvatarStateBubble(nextState.mode);
+        const stateBubble = getAvatarStateBubble(nextState.mode, currentLocale);
         const transition = getAvatarTransitionMeta(
           state.mode,
           nextState.mode,
@@ -150,6 +200,12 @@
         showBubble(event.payload);
       });
 
+      unlistenLocaleChanged = await listen('locale-changed', (event) => {
+        initializeLocale(event.payload);
+      }, {
+        target: { kind: 'WebviewWindow', label: appWindow.label }
+      });
+
       unlistenMoved = await nativeWindow.onMoved(({ payload: position }) => {
         scheduleAvatarPositionSave(position);
       });
@@ -160,6 +216,8 @@
       clearTimeout(transitionTimer);
       clearTimeout(positionSaveTimer);
       clearTimeout(motionTimer);
+      unsubscribeLocale();
+      unlistenLocaleChanged();
       unlistenState();
       unlistenBubble();
       unlistenMoved();

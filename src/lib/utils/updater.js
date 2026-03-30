@@ -4,11 +4,57 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { open } from '@tauri-apps/plugin-shell';
 import { confirm } from '$lib/stores/confirm.js';
 import { showToast } from '$lib/stores/toast.js';
+import { t } from '$lib/i18n/index.js';
 
 const UPDATE_STATUS_EVENT = 'update-status';
 
 let updateInFlight = false;
 let runtimePlatformPromise = null;
+
+function localizeRuntimeStatusMessage(message) {
+  const text = String(message || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  let matched = text.match(/^正在检查更新源\s+(.+)\.\.\.$/);
+  if (matched) {
+    return t('updater.checkingSource', { sourceLabel: matched[1] });
+  }
+
+  matched = text.match(/^发现新版本\s+(.+?)，准备从\s+(.+)\s+下载\.\.\.$/);
+  if (matched) {
+    return t('updater.preparingDownload', {
+      version: matched[1],
+      sourceLabel: matched[2],
+    });
+  }
+
+  matched = text.match(/^更新安装完成，来源\s+(.+)$/);
+  if (matched) {
+    return t('updater.installedFromSource', { sourceLabel: matched[1] });
+  }
+
+  matched = text.match(/^未找到可用于版本\s+(.+)\s+的在线更新源$/);
+  if (matched) {
+    return t('updater.noSourceForVersion', { version: matched[1] });
+  }
+
+  matched = text.match(/^在线更新失败，已尝试全部更新源：(.+)$/);
+  if (matched) {
+    return t('updater.failedWithDetails', { details: matched[1] });
+  }
+
+  if (text === '在线更新已完成') {
+    return t('updater.completed');
+  }
+
+  if (text === '当前未发现可安装的在线更新') {
+    return t('updater.noInstallAvailable');
+  }
+
+  return text;
+}
 
 async function getRuntimePlatform() {
   if (!runtimePlatformPromise) {
@@ -33,7 +79,7 @@ export async function runUpdateFlow(options = {}) {
   }
 
   updateInFlight = true;
-  onStatusChange('正在检查更新...');
+  onStatusChange(t('updater.checking'));
 
   try {
     const releaseInfo = await invoke('check_github_update');
@@ -42,23 +88,23 @@ export async function runUpdateFlow(options = {}) {
     });
 
     if (!releaseInfo?.available) {
-      onStatusChange(silentWhenUpToDate ? '' : '当前已是最新版本');
+      onStatusChange(silentWhenUpToDate ? '' : t('updater.upToDate'));
       if (!silentWhenUpToDate) {
-        showToast('当前已是最新版本', 'success');
+        showToast(t('updater.upToDate'), 'success');
       }
       return { updated: false, available: false };
     }
 
     if (!releaseInfo.autoUpdateReady) {
-      onStatusChange('发现新版本，但当前发布暂未准备好在线更新');
-      showToast('发现新版本，但当前发布暂未准备好在线更新', 'info', 4500);
+      onStatusChange(t('updater.availableManual'));
+      showToast(t('updater.availableManual'), 'info', 4500);
 
       if (confirmBeforeDownload && releaseInfo.releaseUrl) {
         const shouldOpenRelease = await confirm({
-          title: '发现新版本',
-          message: `检测到新版本 ${releaseInfo.latestVersion}，但当前发布暂未准备好在线更新。是否打开发布页查看最新版？`,
-          confirmText: '打开发布页',
-          cancelText: '稍后再说',
+          title: t('updater.newVersionTitle'),
+          message: t('updater.openReleaseMessage', { version: releaseInfo.latestVersion }),
+          confirmText: t('updater.openRelease'),
+          cancelText: t('updater.later'),
           tone: 'info',
         });
 
@@ -77,10 +123,10 @@ export async function runUpdateFlow(options = {}) {
 
     if (confirmBeforeDownload) {
       const shouldStart = await confirm({
-        title: '发现新版本',
-        message: `检测到新版本 ${releaseInfo.latestVersion}。是否现在开始更新？`,
-        confirmText: '立即更新',
-        cancelText: '稍后再说',
+        title: t('updater.newVersionTitle'),
+        message: t('updater.startUpdateMessage', { version: releaseInfo.latestVersion }),
+        confirmText: t('updater.startUpdate'),
+        cancelText: t('updater.later'),
         tone: 'info',
       });
 
@@ -93,7 +139,7 @@ export async function runUpdateFlow(options = {}) {
     const unlistenUpdateStatus = await listen(UPDATE_STATUS_EVENT, (event) => {
       const payload = event.payload || {};
       if (payload.message) {
-        onStatusChange(payload.message);
+        onStatusChange(localizeRuntimeStatusMessage(payload.message));
       }
     });
 
@@ -107,13 +153,13 @@ export async function runUpdateFlow(options = {}) {
 
     const runtimePlatform = await getRuntimePlatform();
     if (runtimePlatform === 'windows') {
-      onStatusChange('安装器已启动，正在退出当前应用完成更新...');
-      showToast('安装器已启动，应用退出后将完成更新', 'success');
+      onStatusChange(t('updater.installerStartedStatus'));
+      showToast(t('updater.installerStartedToast'), 'success');
       await invoke('quit_app_for_update');
       return { updated: true, handoffToInstaller: true };
     }
 
-    onStatusChange('安装完成，正在重启...');
+    onStatusChange(t('updater.restarting'));
     await relaunch();
     return { updated: true };
   } catch (error) {
@@ -121,25 +167,25 @@ export async function runUpdateFlow(options = {}) {
     console.error('检查更新失败:', error);
 
     if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
-      onStatusChange('在线更新超时');
-      showToast('在线更新超时，已尝试全部更新源', 'error');
+      onStatusChange(t('updater.failed'));
+      showToast(t('updater.timeout'), 'error');
     } else if (
       errMsg.includes('Download request failed') ||
       errMsg.includes('failed to download') ||
       errMsg.includes('Network')
     ) {
-      onStatusChange('在线更新失败');
-      showToast('在线更新失败，已尝试全部更新源', 'error');
+      onStatusChange(t('updater.failed'));
+      showToast(t('updater.failedAllSources'), 'error');
     } else {
-      onStatusChange('在线更新失败');
-      showToast('在线更新失败', 'error');
+      onStatusChange(t('updater.failed'));
+      showToast(t('updater.failed'), 'error');
     }
 
     await confirm({
-      title: '更新错误',
-      message: `在线更新未完成：${errMsg}`,
-      confirmText: '我知道了',
-      cancelText: '稍后重试',
+      title: t('updater.errorTitle'),
+      message: t('updater.errorMessage', { error: errMsg }),
+      confirmText: t('updater.acknowledge'),
+      cancelText: t('updater.retryLater'),
       tone: 'error',
     });
 

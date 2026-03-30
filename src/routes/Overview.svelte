@@ -9,6 +9,14 @@
   import { confirm } from '../lib/stores/confirm.js';
   import { showToast } from '../lib/stores/toast.js';
   import { appIconStore, getIconCacheKey, preloadAppIcons } from '../lib/stores/iconCache.js';
+  import {
+    formatDurationLocalized,
+    formatLocalizedDate,
+    formatLocalizedTime,
+    locale,
+    t,
+    translateSemanticCategoryLabel,
+  } from '$lib/i18n/index.js';
   import { resolveAppIconSrc } from '../lib/utils/appVisuals.js';
   import { formatBrowserUrlForDisplay } from '../lib/utils/browserUrl.js';
 
@@ -45,6 +53,7 @@
   
   // 浏览器统计弹窗
   let selectedBrowser = null;
+  $: currentLocale = $locale;
   
   // 订阅全局图标缓存 store
   let appIcons = {};
@@ -68,13 +77,7 @@
   }
 
   function formatDuration(seconds) {
-    if (!seconds || seconds <= 0) return '0秒';
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    if (hours > 0) return `${hours}小时${minutes}分钟`;
-    if (minutes > 0) return `${minutes}分钟`;
-    return `${secs}秒`;
+    return formatDurationLocalized(seconds);
   }
 
   function getAppIconSrc(appName, executablePath = null) {
@@ -85,7 +88,9 @@
   }
 
   function getDomainSemanticLabel(domain) {
-    return domain?.semantic_category?.trim() || '自动识别';
+    return domain?.semantic_category?.trim()
+      ? translateSemanticCategoryLabel(domain.semantic_category.trim())
+      : t('overview.autoDetected');
   }
 
   function startDomainSemanticEdit(domain) {
@@ -129,10 +134,13 @@
     }
 
     const confirmed = await confirm({
-      title: '修改网站语义分类',
-      message: `将 ${domain.domain} 的网站语义分类改为“${nextCategory}”。按域名生效，并回填该站点的历史记录。是否继续？`,
-      confirmText: '确认修改',
-      cancelText: '取消',
+      title: t('overview.changeDomainCategoryTitle'),
+      message: t('overview.changeDomainCategoryMessage', {
+        domain: domain.domain,
+        category: translateSemanticCategoryLabel(nextCategory),
+      }),
+      confirmText: t('overview.confirmChange'),
+      cancelText: t('overview.cancel'),
       tone: 'warning',
     });
     if (!confirmed) return;
@@ -151,12 +159,22 @@
       await refreshOverviewSelection(browserName, executablePath);
       cancelDomainSemanticEdit();
       showToast(
-        `已将 ${domain.domain} 设为“${nextCategory}”，并同步 ${updatedCount} 条历史记录`,
+        t('overview.domainSemanticUpdated', {
+          domain: domain.domain,
+          category: translateSemanticCategoryLabel(nextCategory),
+          count: updatedCount,
+        }),
         'success'
       );
     } catch (e) {
       console.error('修改网站语义分类失败:', e);
-      showToast(`修改 ${domain.domain} 的网站语义分类失败: ${e}`, 'error');
+      showToast(
+        t('overview.domainSemanticUpdateFailed', {
+          domain: domain.domain,
+          error: e,
+        }),
+        'error'
+      );
       savingDomainKey = null;
     }
   }
@@ -249,7 +267,7 @@
   });
 </script>
 
-<div class="page-shell">
+<div class="page-shell" data-locale={currentLocale}>
   <!-- 页面标题 -->
   <div class="page-header">
     <div class="page-title-group">
@@ -259,16 +277,16 @@
         </svg>
       </div>
       <div class="page-title-copy">
-        <h2>今日概览</h2>
+        <h2>{t('overview.title')}</h2>
         <p>
-        {new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}
-        <span class="ml-1.5 font-mono text-xs">{currentTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>
+        {formatLocalizedDate(new Date(), { month: 'long', day: 'numeric', weekday: 'short' })}
+        <span class="ml-1.5 font-mono text-xs">{formatLocalizedTime(currentTime, { hour: '2-digit', minute: '2-digit' })}</span>
         </p>
       </div>
     </div>
     <div class="page-status-chip text-emerald-600 dark:text-emerald-400">
       <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-      实时
+      {t('overview.live')}
     </div>
   </div>
 
@@ -287,26 +305,26 @@
         </div>
       {/each}
     {:else}
-      <StatsCard title="当天活动总时长" value={formatDuration(stats.total_duration)} icon="duration" color="indigo" />
-      <StatsCard title="当天办公时长" value={formatDuration(stats.work_time_duration || 0)} icon="focus" color="emerald" />
-      <StatsCard title="浏览器" value={formatDuration(stats.browser_duration)} icon="browser" color="blue" />
-      <StatsCard title="应用数" value={stats.app_usage.length} icon="apps" color="amber" />
+      <StatsCard title={t('overview.totalActivity')} value={formatDuration(stats.total_duration)} icon="duration" color="indigo" />
+      <StatsCard title={t('overview.workDuration')} value={formatDuration(stats.work_time_duration || 0)} icon="focus" color="emerald" />
+      <StatsCard title={t('overview.browser')} value={formatDuration(stats.browser_duration)} icon="browser" color="blue" />
+      <StatsCard title={t('overview.apps')} value={stats.app_usage.length} icon="apps" color="amber" />
     {/if}
   </div>
 
   {#if error}
     <div class="page-banner-error mb-4">
       <div>
-        <p class="font-semibold">加载概览失败</p>
+        <p class="font-semibold">{t('overview.loadError')}</p>
         <p class="text-sm mt-1">{error}</p>
       </div>
-      <button class="page-action-brand" on:click={loadStats}>重试</button>
+      <button class="page-action-brand" on:click={loadStats}>{t('overview.retry')}</button>
     </div>
   {/if}
 
   <!-- 网站访问：始终渲染，加载中显示骨架，无数据显示占位文字 -->
   <div class="page-card mb-4">
-    <h3 class="page-section-title">网站访问</h3>
+    <h3 class="page-section-title">{t('overview.websiteVisits')}</h3>
     {#if loading || !stats}
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
         {#each [1,2] as _}
@@ -342,9 +360,9 @@
               {formatDuration(browser.duration)}
             </div>
             <div class="flex items-center gap-2 text-xs text-slate-400">
-              <span>{browser.domains.length} 站点</span>
+              <span>{t('overview.sitesCount', { count: browser.domains.length })}</span>
               <span>·</span>
-              <span>{browser.domains.reduce((sum, d) => sum + d.urls.length, 0)} 页面</span>
+              <span>{t('overview.pagesCount', { count: browser.domains.reduce((sum, d) => sum + d.urls.length, 0) })}</span>
             </div>
           </button>
         {/each}
@@ -354,14 +372,14 @@
         <div class="empty-state-icon !w-12 !h-12 !mb-3 shadow-none">
           <span class="text-xl">🌐</span>
         </div>
-        <p class="empty-state-copy">今日暂无浏览器访问记录</p>
+        <p class="empty-state-copy">{t('overview.noWebsiteVisits')}</p>
       </div>
     {/if}
   </div>
 
   <!-- 应用使用：始终渲染 -->
   <div class="page-card mb-4">
-    <h3 class="page-section-title">应用使用</h3>
+    <h3 class="page-section-title">{t('overview.appUsage')}</h3>
     {#if loading || !stats}
       <div class="animate-pulse">
         {#each [1,2,3,4] as _}
@@ -379,13 +397,13 @@
         <div class="empty-state-icon !w-12 !h-12 !mb-3 shadow-none">
           <span class="text-xl">📊</span>
         </div>
-        <p class="empty-state-copy">暂无应用统计数据</p>
+        <p class="empty-state-copy">{t('overview.noAppStats')}</p>
       </div>
     {/if}
   </div>
 
   <div class="page-card mb-4">
-    <h3 class="page-section-title">按小时活跃度</h3>
+    <h3 class="page-section-title">{t('overview.hourlyActivity')}</h3>
     {#if loading || !stats}
       <div class="animate-pulse rounded-2xl bg-white dark:bg-slate-800/60">
         <div class="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -439,7 +457,7 @@
         <div>
           <h3 class="text-lg font-bold text-slate-800 dark:text-white">{selectedBrowser.browser_name}</h3>
           <p class="text-sm text-slate-500 dark:text-slate-400">
-            {formatDuration(selectedBrowser.duration)} · {selectedBrowser.domains.length} 站点 · {selectedBrowser.domains.reduce((sum, d) => sum + d.urls.length, 0)} 页面
+            {formatDuration(selectedBrowser.duration)} · {t('overview.sitesCount', { count: selectedBrowser.domains.length })} · {t('overview.pagesCount', { count: selectedBrowser.domains.reduce((sum, d) => sum + d.urls.length, 0) })}
           </p>
         </div>
       </div>
@@ -460,12 +478,12 @@
               <span class="w-2 h-2 rounded-full bg-primary-500"></span>
               <span class="font-medium text-slate-700 dark:text-slate-200">{domain.domain}</span>
               <span class="text-xs text-slate-400 bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">
-                {domain.urls.length} 页
+                {t('overview.modalPages', { count: domain.urls.length })}
               </span>
             </div>
             <div class="flex items-center gap-2">
               <span class="text-xs px-2 py-1 rounded-full bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300">
-                当前分类：{getDomainSemanticLabel(domain)}
+                {t('overview.currentCategory', { label: getDomainSemanticLabel(domain) })}
               </span>
               <button
                 class="text-xs px-2 py-1 rounded-full border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:border-primary-300 hover:text-primary-600 transition-colors"
@@ -477,7 +495,7 @@
                   }
                 }}
               >
-                修改分类
+                {t('overview.changeCategory')}
               </button>
               <span class="text-sm font-medium text-slate-600 dark:text-slate-300">{formatDuration(domain.duration)}</span>
             </div>
@@ -489,10 +507,10 @@
                 for={`semantic-category-${domain.domain}`}
                 class="block text-xs font-medium text-slate-500 dark:text-slate-400"
               >
-                选择分类
+                {t('overview.selectCategory')}
               </label>
               <p class="text-xs text-slate-400 dark:text-slate-500">
-                使用固定分类集，保存后会按域名统一回填历史记录。
+                {t('overview.semanticCategoryHelp')}
               </p>
               <div class="flex flex-col gap-2 md:flex-row">
                 <select
@@ -501,7 +519,7 @@
                   bind:value={editingSemanticCategory}
                 >
                   {#each getSemanticCategoryOptions() as option}
-                    <option value={option}>{option}</option>
+                    <option value={option}>{translateSemanticCategoryLabel(option)}</option>
                   {/each}
                 </select>
                 <div class="flex items-center gap-2">
@@ -511,9 +529,9 @@
                     on:click={() => saveDomainSemanticRule(domain)}
                   >
                     {#if savingDomainKey === domain.domain}
-                      保存中...
+                      {t('overview.saving')}
                     {:else}
-                      保存
+                      {t('overview.save')}
                     {/if}
                   </button>
                   <button
@@ -521,7 +539,7 @@
                     disabled={savingDomainKey === domain.domain}
                     on:click={cancelDomainSemanticEdit}
                   >
-                    取消
+                    {t('overview.cancel')}
                   </button>
                 </div>
               </div>
@@ -558,10 +576,10 @@
               >
                 {#if expandedDomains.has(domain.domain)}
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
-                  收起
+                  {t('common.collapse')}
                 {:else}
                   <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                  展开全部 {domain.urls.length} 条
+                  {t('common.expandAll', { count: domain.urls.length })}
                 {/if}
               </button>
             {/if}
@@ -572,7 +590,7 @@
       {#if selectedBrowser.domains.length === 0}
         <div class="text-center py-8 text-slate-400">
           <span class="text-3xl">📭</span>
-          <p class="mt-2">暂无访问记录</p>
+          <p class="mt-2">{t('common.noRecords')}</p>
         </div>
       {/if}
     </div>

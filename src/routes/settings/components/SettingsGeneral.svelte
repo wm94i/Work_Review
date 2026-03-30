@@ -2,10 +2,13 @@
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
+  import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
 
   export let config;
 
   const dispatch = createEventDispatcher();
+  $: currentLocale = $locale;
+  let workHours = '—';
 
   // 开机自启动状态（独立于 config，由系统 API 驱动）
   let autoStartEnabled = false;
@@ -38,15 +41,13 @@
   $: endTimeDisplay = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
 
   // 工作时长
-  $: workHours = (() => {
+  $: {
+    currentLocale;
     const startTotal = startHour * 60 + startMinute;
     const endTotal = endHour * 60 + endMinute;
-    const diff = endTotal - startTotal;
-    if (diff <= 0) return '—';
-    const h = Math.floor(diff / 60);
-    const m = diff % 60;
-    return m > 0 ? `${h}小时${m}分钟` : `${h}小时`;
-  })();
+    const diffSeconds = (endTotal - startTotal) * 60;
+    workHours = diffSeconds <= 0 ? '—' : formatDurationLocalized(diffSeconds);
+  }
 
   function updateStart(h, m) {
     config.work_start_hour = h;
@@ -99,22 +100,22 @@
 </script>
 
 <!-- 基本设置 -->
-<div class="settings-card">
-  <h3 class="settings-card-title">基本设置</h3>
-  <p class="settings-card-desc">工作时间和应用行为</p>
+<div class="settings-card" data-locale={currentLocale}>
+  <h3 class="settings-card-title">{t('settingsGeneral.title')}</h3>
+  <p class="settings-card-desc">{t('settingsGeneral.description')}</p>
 
   <div class="settings-section">
     <!-- 工作时间 -->
     <div class="settings-block">
       <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span class="settings-text">工作时间</span>
-        <span class="settings-muted">共 {workHours}</span>
+        <span class="settings-text">{t('settingsGeneral.workTime')}</span>
+        <span class="settings-muted">{t('settingsGeneral.totalWorkHours', { duration: workHours })}</span>
       </div>
 
       <div class="flex items-center gap-3">
         <!-- 开始时间 -->
         <div class="control-inline">
-          <span class="settings-subtle">从</span>
+          <span class="settings-subtle">{t('settingsGeneral.from')}</span>
           <input
             type="time"
             value={startTimeDisplay}
@@ -130,7 +131,7 @@
 
         <!-- 结束时间 -->
         <div class="control-inline">
-          <span class="settings-subtle">到</span>
+          <span class="settings-subtle">{t('settingsGeneral.to')}</span>
           <input
             type="time"
             value={endTimeDisplay}
@@ -142,7 +143,7 @@
           />
         </div>
       </div>
-      <p class="settings-note">此时间段内的活动将被计入工作时长统计</p>
+      <p class="settings-note">{t('settingsGeneral.workTimeHint')}</p>
     </div>
 
     <hr class="border-slate-200 dark:border-slate-700" />
@@ -150,8 +151,8 @@
     <!-- 开机自启动 -->
     <div class="flex items-center justify-between">
       <div>
-        <div class="settings-text">开机自启动</div>
-        <div class="settings-muted mt-0.5">系统启动时自动运行 Work Review</div>
+        <div class="settings-text">{t('settingsGeneral.autoStart')}</div>
+        <div class="settings-muted mt-0.5">{t('settingsGeneral.autoStartDescription')}</div>
       </div>
       <button
         on:click={toggleAutoStart}
@@ -166,8 +167,8 @@
     <!-- Dock 图标 -->
     <div class="flex items-center justify-between">
       <div>
-        <div class="settings-text">隐藏 Dock 图标</div>
-        <div class="settings-muted mt-0.5">隐藏后仅通过系统托盘访问应用</div>
+        <div class="settings-text">{t('settingsGeneral.hideDockIcon')}</div>
+        <div class="settings-muted mt-0.5">{t('settingsGeneral.hideDockIconDescription')}</div>
       </div>
       <button
         on:click={toggleDockIcon}
@@ -181,8 +182,8 @@
 
     <div class="flex items-center justify-between">
       <div>
-        <div class="settings-text">轻量模式</div>
-        <div class="settings-muted mt-0.5">关闭主界面后释放 Webview，仅保留后台记录与托盘；重新打开主界面时会按需重建</div>
+        <div class="settings-text">{t('settingsGeneral.lightweightMode')}</div>
+        <div class="settings-muted mt-0.5">{t('settingsGeneral.lightweightModeDescription')}</div>
       </div>
       <button
         on:click={toggleLightweightMode}

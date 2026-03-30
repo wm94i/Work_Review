@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { ask, open as openDialog } from '@tauri-apps/plugin-dialog';
   import { cache } from '../../../lib/stores/cache.js';
+  import { locale, t } from '$lib/i18n/index.js';
   import { showToast } from '$lib/stores/toast.js';
   
   export let config;
@@ -11,32 +12,45 @@
   export let defaultDataDir = '';
   
   const dispatch = createEventDispatcher();
+  $: currentLocale = $locale;
   let isClearing = false;
   let isMigrating = false;
   let isCleaningPreviousDir = false;
   let cleanupCandidateDir = '';
+  let localizedScreenshotModes = [];
+  let screenshotIntervalLabel = '';
+  let retentionDaysLabel = '';
+  let storageRetentionLabel = '';
   const screenshotModes = [
     {
       value: 'active_window',
-      label: '活动窗口所在屏幕',
-      description: '默认推荐，只截当前应用所在的那块屏幕',
+      labelKey: 'settingsStorage.modeActiveWindow',
+      descriptionKey: 'settingsStorage.modeActiveWindowDesc',
     },
     {
       value: 'all',
-      label: '整桌面拼接截图',
-      description: '把所有显示器内容拼成一张完整截图',
+      labelKey: 'settingsStorage.modeAll',
+      descriptionKey: 'settingsStorage.modeAllDesc',
     },
   ];
+  $: {
+    currentLocale;
+    localizedScreenshotModes = screenshotModes.map((mode) => ({
+      ...mode,
+      label: t(mode.labelKey),
+      description: t(mode.descriptionKey),
+    }));
+  }
 
   function clearCache() {
     cache.clear();
-    showToast('缓存已清理');
+    showToast(t('settingsStorage.clearCacheAction'));
     dispatch('clearCache');
   }
 
   async function clearOldData() {
-    const confirmed = await ask('确认删除今天之前的所有活动记录和截图？此操作不可恢复！', {
-      title: '确认清理历史数据',
+    const confirmed = await ask(t('settingsStorage.clearHistoryConfirmMessage'), {
+      title: t('settingsStorage.clearHistoryConfirmTitle'),
       kind: 'warning',
     });
 
@@ -46,12 +60,12 @@
     
     isClearing = true;
     try {
-      const result = await invoke('clear_old_activities');
-      showToast(result?.message || '清理完成');
+      await invoke('clear_old_activities');
+      showToast(t('settingsStorage.clearDone'), 'success');
       cache.clear();
       dispatch('clearCache');
     } catch (e) {
-      showToast('清理失败: ' + e, 'error');
+      showToast(t('settingsStorage.clearFailed', { error: e }), 'error');
     } finally {
       isClearing = false;
     }
@@ -64,14 +78,14 @@
     }
 
     if (nextDir === dataDir) {
-      showToast('已是当前数据目录');
+      showToast(t('settingsStorage.alreadyCurrentDir'));
       return;
     }
 
     const confirmed = await ask(
-      `将把当前数据迁移到新目录：\n${nextDir}\n\n若目标目录已有 Work Review 历史数据，会被当前数据覆盖。此过程可能持续几秒，是否继续？`,
+      t('settingsStorage.migrateConfirmMessage', { dir: nextDir }),
       {
-        title: '确认迁移数据目录',
+        title: t('settingsStorage.migrateConfirmTitle'),
         kind: 'warning',
       },
     );
@@ -84,10 +98,10 @@
     try {
       const result = await invoke('change_data_dir', { targetDir: nextDir });
       cleanupCandidateDir = result?.oldDataDir || dataDir;
-      showToast(result?.message || '数据目录已更新', 'success');
+      showToast(t('settingsStorage.migrated'), 'success');
       dispatch('dataDirChanged', result);
     } catch (e) {
-      showToast('迁移失败: ' + e, 'error');
+      showToast(t('settingsStorage.migrateFailed', { error: e }), 'error');
     } finally {
       isMigrating = false;
     }
@@ -115,7 +129,7 @@
     try {
       await invoke('open_data_dir');
     } catch (e) {
-      showToast('打开目录失败: ' + e, 'error');
+      showToast(t('settingsStorage.openDirFailed', { error: e }), 'error');
     }
   }
 
@@ -126,9 +140,9 @@
     }
 
     const confirmed = await ask(
-      `将清理旧目录中的 Work Review 数据：\n${targetDir}\n\n只会删除应用管理的配置、数据库、截图、OCR 日志等文件；若目录内还有其他文件，会保留它们。是否继续？`,
+      t('settingsStorage.cleanupOldConfirmMessage', { dir: targetDir }),
       {
-        title: '确认清理旧目录',
+        title: t('settingsStorage.cleanupOldConfirmTitle'),
         kind: 'warning',
       },
     );
@@ -139,11 +153,11 @@
 
     isCleaningPreviousDir = true;
     try {
-      const result = await invoke('cleanup_old_data_dir', { targetDir });
+      await invoke('cleanup_old_data_dir', { targetDir });
       cleanupCandidateDir = '';
-      showToast(result?.message || '旧目录已清理', 'success');
+      showToast(t('settingsStorage.oldDirCleaned'), 'success');
     } catch (e) {
-      showToast('清理旧目录失败: ' + e, 'error');
+      showToast(t('settingsStorage.cleanupOldFailed', { error: e }), 'error');
     } finally {
       isCleaningPreviousDir = false;
     }
@@ -181,22 +195,28 @@
   // 使用量颜色
   $: usageColor = usagePercent > 80 ? 'bg-red-500' : usagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500';
   $: usingDefaultDataDir = dataDir && defaultDataDir && dataDir === defaultDataDir;
+  $: {
+    currentLocale;
+    screenshotIntervalLabel = t('settingsStorage.secondsValue', { count: config?.screenshot_interval ?? 0 });
+    retentionDaysLabel = t('settingsStorage.daysValue', { count: config?.storage?.screenshot_retention_days ?? 0 });
+    storageRetentionLabel = t('settingsStorage.daysValue', { count: storageStats?.retention_days ?? 0 });
+  }
   $: if (cleanupCandidateDir && cleanupCandidateDir === dataDir) {
     cleanupCandidateDir = '';
   }
 </script>
 
 <!-- 截图与保留 -->
-<div class="settings-card mb-5">
-  <h3 class="settings-card-title">截图与保留</h3>
-  <p class="settings-card-desc">控制截图频率、保留周期和多屏记录方式</p>
+<div class="settings-card mb-5" data-locale={currentLocale}>
+  <h3 class="settings-card-title">{t('settingsStorage.screenshotCardTitle')}</h3>
+  <p class="settings-card-desc">{t('settingsStorage.screenshotCardDesc')}</p>
   
   <div class="settings-section">
     <div class="settings-block">
       <div class="flex items-center justify-between gap-4">
         <div>
-          <p class="settings-text">启用截图</p>
-          <p class="settings-note">关闭后仍保留时间线、应用和网站记录，但不再保存截图和 OCR 文本</p>
+          <p class="settings-text">{t('settingsStorage.screenshotsEnabled')}</p>
+          <p class="settings-note">{t('settingsStorage.screenshotsEnabledHint')}</p>
         </div>
         <button
           type="button"
@@ -219,8 +239,8 @@
     <!-- 轮询间隔 -->
     <div class="settings-block">
       <div class="flex items-center justify-between">
-        <label for="screenshot-interval" class="settings-text">活动轮询间隔</label>
-        <span class="settings-value">{config.screenshot_interval}秒</span>
+        <label for="screenshot-interval" class="settings-text">{t('settingsStorage.pollingInterval')}</label>
+        <span class="settings-value">{screenshotIntervalLabel}</span>
       </div>
       <input
         id="screenshot-interval"
@@ -233,17 +253,17 @@
         class="range-input"
       />
       <div class="flex justify-between text-xs settings-subtle">
-        <span>10秒（更精确）</span>
-        <span>120秒（更省电）</span>
+        <span>{t('settingsStorage.precise')}</span>
+        <span>{t('settingsStorage.powerSave')}</span>
       </div>
-      <p class="settings-note">每隔此时长检测一次当前活动窗口；启用截图时会同时保存截图并执行 OCR</p>
+      <p class="settings-note">{t('settingsStorage.pollingHint')}</p>
     </div>
 
     <!-- 数据保留 -->
     <div class="settings-block">
       <div class="flex items-center justify-between">
-        <label for="retention-days" class="settings-text">数据保留天数</label>
-        <span class="settings-value">{config.storage.screenshot_retention_days}天</span>
+        <label for="retention-days" class="settings-text">{t('settingsStorage.retentionDays')}</label>
+        <span class="settings-value">{retentionDaysLabel}</span>
       </div>
       <input
         id="retention-days"
@@ -259,16 +279,16 @@
         class="range-input"
       />
       <div class="flex justify-between text-xs settings-subtle">
-        <span>1天</span>
-        <span>90天</span>
+        <span>{t('settingsStorage.retentionMin')}</span>
+        <span>{t('settingsStorage.retentionMax')}</span>
       </div>
-      <p class="settings-note">超过此天数的活动记录和截图将被自动清理</p>
+      <p class="settings-note">{t('settingsStorage.retentionHint')}</p>
     </div>
 
     <div class="settings-block">
-      <p class="settings-text mb-2">截图范围</p>
+      <p class="settings-text mb-2">{t('settingsStorage.screenshotMode')}</p>
       <div class="flex gap-2">
-        {#each screenshotModes as mode}
+        {#each localizedScreenshotModes as mode}
           <button
             type="button"
             on:click={() => {
@@ -290,31 +310,31 @@
         {/each}
       </div>
       <p class="settings-note">
-        默认按活动窗口所在屏幕截图；只有在你确实需要保留整套桌面上下文时，再改成“整桌面拼接截图”。
+        {t('settingsStorage.screenshotModeHint')}
       </p>
     </div>
   </div>
 </div>
 
 <!-- 日报导出 -->
-<div class="settings-card mb-5">
-  <h3 class="settings-card-title">日报导出</h3>
-  <p class="settings-card-desc">设置日报 Markdown 默认下载位置。</p>
+<div class="settings-card mb-5" data-locale={currentLocale}>
+  <h3 class="settings-card-title">{t('settingsStorage.exportTitle')}</h3>
+  <p class="settings-card-desc">{t('settingsStorage.exportDesc')}</p>
 
   <div class="settings-block">
     <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
-      <p class="settings-text">日报 Markdown 导出目录</p>
+      <p class="settings-text">{t('settingsStorage.exportDir')}</p>
       <p class="settings-muted mt-1 break-all">
-        {config.daily_report_export_dir || '未设置'}
+        {config.daily_report_export_dir || t('settingsStorage.notSet')}
       </p>
-      <p class="settings-note mt-3">设置后，生成日报时会自动导出 YYYY-MM-DD.md。</p>
+      <p class="settings-note mt-3">{t('settingsStorage.exportDirHint')}</p>
       <div class="mt-4 flex flex-wrap gap-3">
         <button
           type="button"
           on:click={pickDailyReportExportDir}
           class="settings-action-secondary"
         >
-          选择目录
+          {t('settingsStorage.chooseDir')}
         </button>
         {#if config.daily_report_export_dir}
           <button
@@ -322,7 +342,7 @@
             on:click={clearDailyReportExportDir}
             class="settings-action-secondary"
           >
-            清空目录
+            {t('settingsStorage.clearDir')}
           </button>
         {/if}
       </div>
@@ -330,21 +350,21 @@
   </div>
 </div>
 
-<div class="settings-card mb-5">
-  <h3 class="settings-card-title">数据目录与清理</h3>
-  <p class="settings-card-desc">管理本地数据位置、容量占用和历史清理</p>
+<div class="settings-card mb-5" data-locale={currentLocale}>
+  <h3 class="settings-card-title">{t('settingsStorage.dataDirTitle')}</h3>
+  <p class="settings-card-desc">{t('settingsStorage.dataDirDesc')}</p>
 
   <div class="settings-section">
     <div class="settings-block">
       <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
         <div class="grid gap-4 md:grid-cols-2">
           <div>
-            <p class="settings-text">当前目录</p>
-            <p class="settings-muted mt-1 break-all">{dataDir || '读取中...'}</p>
+            <p class="settings-text">{t('settingsStorage.currentDir')}</p>
+            <p class="settings-muted mt-1 break-all">{dataDir || t('common.loading')}</p>
           </div>
           <div>
-            <p class="settings-text">默认目录</p>
-            <p class="settings-muted mt-1 break-all">{defaultDataDir || '读取中...'}</p>
+            <p class="settings-text">{t('settingsStorage.defaultDir')}</p>
+            <p class="settings-muted mt-1 break-all">{defaultDataDir || t('common.loading')}</p>
           </div>
         </div>
 
@@ -355,9 +375,9 @@
             class="settings-action-secondary"
           >
             {#if isMigrating}
-              迁移中...
+              {t('settingsStorage.migrating')}
             {:else}
-              更改位置
+              {t('settingsStorage.changeLocation')}
             {/if}
           </button>
 
@@ -366,7 +386,7 @@
             disabled={isMigrating}
             class="settings-action-secondary"
           >
-            打开当前目录
+            {t('settingsStorage.openCurrentDir')}
           </button>
 
           {#if !usingDefaultDataDir && defaultDataDir}
@@ -375,21 +395,21 @@
               disabled={isMigrating}
               class="settings-action-secondary"
             >
-              恢复默认位置
+              {t('settingsStorage.restoreDefaultDir')}
             </button>
           {/if}
         </div>
 
         <p class="settings-note mt-3">
-          建议选择专用空目录。迁移时会复制当前配置、数据库、截图、OCR 日志与背景图。
+          {t('settingsStorage.dataDirHint')}
         </p>
 
         {#if cleanupCandidateDir}
           <div class="mt-4 rounded-xl border border-amber-200/70 bg-amber-50/90 p-3 dark:border-amber-500/30 dark:bg-amber-950/20">
-            <p class="settings-text">旧目录待清理</p>
+            <p class="settings-text">{t('settingsStorage.oldDirPending')}</p>
             <p class="settings-muted mt-1 break-all">{cleanupCandidateDir}</p>
             <p class="settings-note mt-2">
-              已切换到新目录。若确认迁移无误，可清理旧目录中的 Work Review 数据；其他非应用文件会保留。
+              {t('settingsStorage.oldDirHint')}
             </p>
             <div class="mt-3 flex flex-wrap gap-3">
               <button
@@ -398,9 +418,9 @@
                 class="settings-action-secondary"
               >
                 {#if isCleaningPreviousDir}
-                  清理中...
+                  {t('settingsStorage.cleaning')}
                 {:else}
-                  清理旧目录
+                  {t('settingsStorage.cleanOldDir')}
                 {/if}
               </button>
               <button
@@ -408,7 +428,7 @@
                 disabled={isCleaningPreviousDir}
                 class="settings-action-secondary"
               >
-                稍后处理
+                {t('settingsStorage.later')}
               </button>
             </div>
           </div>
@@ -438,15 +458,15 @@
           <div class="grid grid-cols-3 gap-3">
             <div class="rounded-xl bg-white/70 p-3 text-center ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
               <p class="text-xl font-bold text-slate-800 dark:text-white">{storageStats.total_files}</p>
-              <p class="settings-muted mt-0.5">截图数</p>
+              <p class="settings-muted mt-0.5">{t('settingsStorage.screenshotsCount')}</p>
             </div>
             <div class="rounded-xl bg-white/70 p-3 text-center ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
               <p class="text-xl font-bold text-slate-800 dark:text-white">{storageStats.total_size_mb} MB</p>
-              <p class="settings-muted mt-0.5">已用空间</p>
+              <p class="settings-muted mt-0.5">{t('settingsStorage.usedSpace')}</p>
             </div>
             <div class="rounded-xl bg-white/70 p-3 text-center ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-              <p class="text-xl font-bold text-slate-800 dark:text-white">{storageStats.retention_days} 天</p>
-              <p class="settings-muted mt-0.5">保留期限</p>
+              <p class="text-xl font-bold text-slate-800 dark:text-white">{storageRetentionLabel}</p>
+              <p class="settings-muted mt-0.5">{t('settingsStorage.retentionPeriod')}</p>
             </div>
           </div>
         </div>
@@ -456,21 +476,21 @@
     <div class="settings-block">
       <div class="flex items-center justify-between rounded-xl bg-slate-50 p-3 dark:bg-slate-700/30">
         <div>
-          <p class="settings-text">清理页面缓存</p>
-          <p class="settings-muted mt-0.5">解决数据显示异常问题，不影响已保存的数据</p>
+          <p class="settings-text">{t('settingsStorage.clearCache')}</p>
+          <p class="settings-muted mt-0.5">{t('settingsStorage.clearCacheHint')}</p>
         </div>
         <button
           on:click={clearCache}
           class="settings-action-secondary"
         >
-          清理缓存
+          {t('settingsStorage.clearCacheAction')}
         </button>
       </div>
 
       <div class="settings-panel-danger flex items-center justify-between">
         <div>
-          <p class="settings-text-danger text-sm font-medium">清理历史数据</p>
-          <p class="settings-muted mt-0.5">删除今天之前的所有活动记录和截图，不可恢复</p>
+          <p class="settings-text-danger text-sm font-medium">{t('settingsStorage.clearHistory')}</p>
+          <p class="settings-muted mt-0.5">{t('settingsStorage.clearHistoryHint')}</p>
         </div>
         <button
           on:click={clearOldData}
@@ -478,9 +498,9 @@
           class="settings-action-danger"
         >
           {#if isClearing}
-            清理中...
+            {t('settingsStorage.cleaning')}
           {:else}
-            清理历史
+            {t('settingsStorage.clearHistoryAction')}
           {/if}
         </button>
       </div>
