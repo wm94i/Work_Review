@@ -1069,6 +1069,14 @@ impl Database {
             if work_end_ts > work_start_ts {
                 work_time_duration +=
                     calculate_overlap_duration(timestamp, duration, work_start_ts, work_end_ts);
+            } else {
+                // 跨零点：结束时间在次日，加一天偏移后计算重叠
+                work_time_duration += calculate_overlap_duration(
+                    timestamp,
+                    duration,
+                    work_start_ts,
+                    work_end_ts + 86400,
+                );
             }
 
             let interval_start = timestamp.saturating_sub(duration);

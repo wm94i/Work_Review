@@ -3015,7 +3015,7 @@ async fn test_openai(
         .json(&serde_json::json!({
             "model": config.model,
             "messages": [{"role": "user", "content": "Hello"}],
-            "max_tokens": 5,
+            "max_tokens": 16,
         }))
         .send()
         .await
