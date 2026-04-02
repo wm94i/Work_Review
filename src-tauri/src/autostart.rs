@@ -1,6 +1,6 @@
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 use std::env::current_exe;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Manager};
 
 const AUTOSTART_LAUNCH_ARG: &str = "--autostart";
 
