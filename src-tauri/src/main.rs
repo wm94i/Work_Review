@@ -1780,18 +1780,42 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
 
                     // 合并记录（不更新 screenshot_path，保留活动创建时的原始截图）
                     // 即使 effective_duration 为 0，也需要更新时间戳以保持记录活跃
-                    let (merged_screenshot_path, previous_screenshot_full_path) =
-                        if let Some(ref screenshot) = screenshot_result {
-                            let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-                            (
-                                state_guard
-                                    .screenshot_service
-                                    .get_relative_path(&screenshot.path),
-                                Some(state_guard.data_dir.join(&previous_screenshot_path)),
-                            )
-                        } else {
-                            (previous_screenshot_path.clone(), None)
-                        };
+                    let (
+                        latest_archive_relative_path,
+                        latest_archive_path,
+                        ocr_input_path,
+                        temporary_ocr_source_path,
+                        previous_screenshot_full_path,
+                    ) = if let Some(ref screenshot) = screenshot_result {
+                        let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
+                        (
+                            state_guard
+                                .screenshot_service
+                                .get_relative_path(&screenshot.path),
+                            Some(screenshot.path.clone()),
+                            screenshot
+                                .ocr_source_path
+                                .clone()
+                                .unwrap_or_else(|| screenshot.path.clone()),
+                            screenshot
+                                .ocr_source_path
+                                .clone()
+                                .filter(|path| path != &screenshot.path),
+                            Some(state_guard.data_dir.join(&previous_screenshot_path)),
+                        )
+                    } else {
+                        (
+                            previous_screenshot_path.clone(),
+                            None,
+                            PathBuf::new(),
+                            None,
+                            None,
+                        )
+                    };
+
+                    let mut persisted_screenshot_path = previous_screenshot_path.clone();
+                    let mut persisted_duration = latest.duration;
+                    let mut merge_succeeded = false;
 
                     if effective_duration > 0 {
                         let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
@@ -1799,10 +1823,13 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                             latest_id,
                             effective_duration,
                             None,
-                            &merged_screenshot_path,
+                            &latest_archive_relative_path,
                             current_timestamp,
                         ) {
                             Ok(_) => {
+                                merge_succeeded = true;
+                                persisted_screenshot_path = latest_archive_relative_path.clone();
+                                persisted_duration += effective_duration;
                                 log::info!(
                                     "✅ 合并成功: {} (id={}, 新时长={}s)",
                                     active_window.app_name,
@@ -1818,15 +1845,16 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
 
                     // 对截图执行 OCR；若已成功合并，则保留最新截图并清理旧截图
                     if let Some(screenshot) = screenshot_result {
-                        let latest_capture_path = screenshot.path.clone();
+                        let latest_capture_path =
+                            latest_archive_path.unwrap_or_else(|| screenshot.path.clone());
                         let state_clone = state.clone();
                         let data_dir_clone = {
                             let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
                             state_guard.data_dir.clone()
                         };
-                        let should_keep_latest_capture = effective_duration > 0;
+                        let should_keep_latest_capture = merge_succeeded;
                         let should_delete_previous_capture = should_keep_latest_capture
-                            && merged_screenshot_path != previous_screenshot_path;
+                            && persisted_screenshot_path != previous_screenshot_path;
 
                         use std::sync::atomic::{AtomicU64, Ordering};
                         static MERGE_SCREENSHOT_HASH: AtomicU64 = AtomicU64::new(0);
@@ -1839,6 +1867,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                 Ok(p) => p,
                                 Err(_) => {
                                     log::debug!("OCR 并发已满，跳过合并路径 OCR");
+                                    if let Some(temp_path) = temporary_ocr_source_path.clone() {
+                                        let _ = std::fs::remove_file(&temp_path);
+                                    }
                                     if !should_keep_latest_capture {
                                         let _ = std::fs::remove_file(&latest_capture_path);
                                     }
@@ -1875,7 +1906,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                             if should_ocr {
                                 let ocr_service = ocr::OcrService::new(&data_dir_clone);
                                 if let Ok(Some(ocr_result)) =
-                                    ocr_service.extract_text(&latest_capture_path)
+                                    ocr_service.extract_text(&ocr_input_path)
                                 {
                                     if !ocr_result.text.is_empty() {
                                         let filtered_text =
@@ -1893,6 +1924,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                         }
                                     }
                                 }
+                            }
+
+                            if let Some(temp_path) = temporary_ocr_source_path {
+                                let _ = std::fs::remove_file(&temp_path);
                             }
 
                             if should_delete_previous_capture {
@@ -1914,10 +1949,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                         timestamp: current_timestamp,
                         app_name: active_window.app_name.clone(),
                         window_title: active_window.window_title,
-                        screenshot_path: merged_screenshot_path,
+                        screenshot_path: persisted_screenshot_path,
                         ocr_text: None,
                         category,
-                        duration: latest.duration + effective_duration,
+                        duration: persisted_duration,
                         browser_url: active_window.browser_url,
                         executable_path: active_window.executable_path,
                         semantic_category: Some(classification.semantic_category.clone()),
@@ -1974,13 +2009,28 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                     adjusted_duration
                                 };
 
-                                let (relative_path, data_dir_clone) = {
+                                let (
+                                    relative_path,
+                                    archive_path,
+                                    ocr_input_path,
+                                    temporary_ocr_source_path,
+                                    data_dir_clone,
+                                ) = {
                                     let state_guard =
                                         state.lock().unwrap_or_else(|e| e.into_inner());
                                     (
                                         state_guard
                                             .screenshot_service
                                             .get_relative_path(&screenshot_result.path),
+                                        screenshot_result.path.clone(),
+                                        screenshot_result
+                                            .ocr_source_path
+                                            .clone()
+                                            .unwrap_or_else(|| screenshot_result.path.clone()),
+                                        screenshot_result
+                                            .ocr_source_path
+                                            .clone()
+                                            .filter(|path| path != &screenshot_result.path),
                                         state_guard.data_dir.clone(),
                                     )
                                 };
@@ -2018,7 +2068,6 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
 
                                         // 异步 OCR（新建活动的截图已保存，不删除）
                                         let state_clone = state.clone();
-                                        let screenshot_path_clone = relative_path;
                                         let ocr_sem = ocr_semaphore.clone();
                                         tokio::spawn(async move {
                                             // 非阻塞获取 permit，满载时跳过 OCR
@@ -2026,6 +2075,11 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                                 Ok(p) => p,
                                                 Err(_) => {
                                                     log::debug!("OCR 并发已满，跳过新建路径 OCR");
+                                                    if let Some(temp_path) =
+                                                        temporary_ocr_source_path.clone()
+                                                    {
+                                                        let _ = std::fs::remove_file(&temp_path);
+                                                    }
                                                     return;
                                                 }
                                             };
@@ -2033,12 +2087,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                             tokio::time::sleep(tokio::time::Duration::from_secs(1))
                                                 .await;
 
-                                            let full_path =
-                                                data_dir_clone.join(&screenshot_path_clone);
                                             let ocr_service = ocr::OcrService::new(&data_dir_clone);
 
                                             if let Ok(Some(ocr_result)) =
-                                                ocr_service.extract_text(&full_path)
+                                                ocr_service.extract_text(&ocr_input_path)
                                             {
                                                 if !ocr_result.text.is_empty() {
                                                     let filtered_text = ocr::filter_sensitive_text(
@@ -2059,6 +2111,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                                     }
                                                 }
                                             }
+
+                                            if let Some(temp_path) = temporary_ocr_source_path {
+                                                let _ = std::fs::remove_file(&temp_path);
+                                            }
                                         });
 
                                         Some(database::Activity {
@@ -2068,6 +2124,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                                     }
                                     Err(e) => {
                                         log::error!("保存活动记录失败: {e}");
+                                        let _ = std::fs::remove_file(&archive_path);
+                                        if let Some(temp_path) = temporary_ocr_source_path {
+                                            let _ = std::fs::remove_file(&temp_path);
+                                        }
                                         None
                                     }
                                 }

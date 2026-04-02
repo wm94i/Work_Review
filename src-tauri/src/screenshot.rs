@@ -1,15 +1,20 @@
 use crate::config::{ScreenshotDisplayMode, StorageConfig};
 use crate::error::{AppError, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
-use image::{imageops::FilterType, ColorType};
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use image::DynamicImage;
 #[cfg(target_os = "macos")]
 use image::RgbaImage;
+use image::{imageops::FilterType, ColorType};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use std::process::Command;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 /// 检查 macOS 屏幕录制权限（不触发授权弹窗）
 /// 使用 CGPreflightScreenCaptureAccess (macOS 10.15+)
@@ -79,7 +84,10 @@ pub fn has_accessibility_permission(_prompt: bool) -> bool {
 /// 截屏结果
 #[derive(Debug, Clone)]
 pub struct ScreenshotResult {
+    /// 归档截图路径（长期保留）
     pub path: PathBuf,
+    /// OCR 临时源图路径（识别后可删除）
+    pub ocr_source_path: Option<PathBuf>,
     pub timestamp: i64,
     pub width: u32,
     pub height: u32,
@@ -123,6 +131,7 @@ pub struct ScreenshotService {
 
 impl ScreenshotService {
     pub fn new(data_dir: &Path, storage_config: &StorageConfig) -> Self {
+        let _ = cleanup_stale_ocr_temp_dir(data_dir);
         Self {
             data_dir: data_dir.to_path_buf(),
             config: ScreenshotConfig::from(storage_config),
@@ -169,13 +178,16 @@ impl ScreenshotService {
         let screenshots_dir = self.data_dir.join("screenshots").join(&date_str);
         std::fs::create_dir_all(&screenshots_dir)?;
 
-        let final_jpg = screenshots_dir.join(format!("{time_str}.jpg"));
-
         if should_capture_all_displays(&self.config) {
             return match self.capture_with_gdi(None) {
-                Ok((pixels, width, height)) => {
-                    self.save_rgba_to_jpeg(&pixels, width, height, &final_jpg, now.timestamp())
-                }
+                Ok((pixels, width, height)) => self.persist_rgba_capture(
+                    &pixels,
+                    width,
+                    height,
+                    &screenshots_dir,
+                    &time_str,
+                    now.timestamp(),
+                ),
                 Err(e) => Err(AppError::Screenshot(format!("全屏幕截图失败: {e}"))),
             };
         }
@@ -183,11 +195,10 @@ impl ScreenshotService {
         // 先尝试 Windows Graphics Capture API
         match self.capture_with_wgc(&screenshots_dir, &time_str, active_window) {
             Ok(result) => {
-                return self.process_and_save_image(
+                return self.persist_existing_png_capture(
                     &result.0,
-                    &final_jpg,
-                    result.1,
-                    result.2,
+                    &screenshots_dir,
+                    &time_str,
                     now.timestamp(),
                 );
             }
@@ -198,9 +209,14 @@ impl ScreenshotService {
 
         // 降级使用 GDI BitBlt（Windows 10 兼容方案）
         match self.capture_with_gdi(active_window) {
-            Ok((pixels, width, height)) => {
-                self.save_rgba_to_jpeg(&pixels, width, height, &final_jpg, now.timestamp())
-            }
+            Ok((pixels, width, height)) => self.persist_rgba_capture(
+                &pixels,
+                width,
+                height,
+                &screenshots_dir,
+                &time_str,
+                now.timestamp(),
+            ),
             Err(e) => Err(AppError::Screenshot(format!("GDI 截图也失败: {e}"))),
         }
     }
@@ -519,119 +535,108 @@ impl ScreenshotService {
         }
     }
 
-    /// 处理临时 PNG 并保存为 JPEG
-    #[cfg(target_os = "windows")]
-    fn process_and_save_image(
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    fn persist_existing_png_capture(
         &self,
         temp_png: &Path,
-        final_jpg: &Path,
-        orig_width: u32,
-        orig_height: u32,
+        screenshots_dir: &Path,
+        time_str: &str,
         timestamp: i64,
     ) -> Result<ScreenshotResult> {
-        let img = image::open(temp_png)
-            .map_err(|e| AppError::Screenshot(format!("读取截图失败: {e}")))?;
-
-        let mut dynamic_image = img;
-        if orig_width > self.config.max_width {
-            let scale = self.config.max_width as f32 / orig_width as f32;
-            let new_height = (orig_height as f32 * scale) as u32;
-            dynamic_image =
-                dynamic_image.resize(self.config.max_width, new_height, FilterType::Lanczos3);
+        let (archive_path, ocr_source_path) =
+            capture_output_paths(&self.data_dir, screenshots_dir, time_str);
+        ensure_parent_dir(&ocr_source_path)?;
+        if temp_png != ocr_source_path {
+            move_or_copy_file(temp_png, &ocr_source_path)?;
         }
 
-        let final_width = dynamic_image.width();
-        let final_height = dynamic_image.height();
+        let image = image::open(&ocr_source_path)
+            .map_err(|e| AppError::Screenshot(format!("读取截图失败: {e}")))?;
+        let archive_image = prepare_archive_image_with_config(image, &self.config);
+        let width = archive_image.width();
+        let height = archive_image.height();
 
-        let rgb_image = dynamic_image.to_rgb8();
-        let mut output_file = std::fs::File::create(final_jpg)?;
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut output_file,
-            self.config.jpeg_quality,
-        );
-        encoder.encode(
-            rgb_image.as_raw(),
-            final_width,
-            final_height,
-            ColorType::Rgb8.into(),
-        )?;
+        save_archive_jpeg_with_quality(&archive_image, &archive_path, self.config.jpeg_quality)?;
 
-        // 删除临时 PNG
-        let _ = std::fs::remove_file(temp_png);
-
-        let file_size = std::fs::metadata(final_jpg).map(|m| m.len()).unwrap_or(0);
+        let file_size = std::fs::metadata(&archive_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
         log::info!(
-            "截屏保存到: {:?} ({}x{}, {} KB)",
-            final_jpg,
-            final_width,
-            final_height,
+            "截图归档到: {:?} ({}x{}, {} KB)",
+            archive_path,
+            width,
+            height,
             file_size / 1024
         );
 
         Ok(ScreenshotResult {
-            path: final_jpg.to_path_buf(),
+            path: archive_path,
+            ocr_source_path: Some(ocr_source_path),
             timestamp,
-            width: final_width,
-            height: final_height,
+            width,
+            height,
         })
     }
 
-    /// 将 RGBA 像素数据保存为 JPEG
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn persist_dynamic_image_capture(
+        &self,
+        dynamic_image: DynamicImage,
+        screenshots_dir: &Path,
+        time_str: &str,
+        timestamp: i64,
+    ) -> Result<ScreenshotResult> {
+        let (archive_path, ocr_source_path) =
+            capture_output_paths(&self.data_dir, screenshots_dir, time_str);
+        ensure_parent_dir(&ocr_source_path)?;
+        dynamic_image
+            .save_with_format(&ocr_source_path, image::ImageFormat::Png)
+            .map_err(|e| AppError::Screenshot(format!("保存 OCR 临时图失败: {e}")))?;
+
+        let archive_image = prepare_archive_image_with_config(dynamic_image, &self.config);
+        let width = archive_image.width();
+        let height = archive_image.height();
+        save_archive_jpeg_with_quality(&archive_image, &archive_path, self.config.jpeg_quality)?;
+
+        let file_size = std::fs::metadata(&archive_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        log::info!(
+            "截图归档到: {:?} ({}x{}, {} KB)",
+            archive_path,
+            width,
+            height,
+            file_size / 1024
+        );
+
+        Ok(ScreenshotResult {
+            path: archive_path,
+            ocr_source_path: Some(ocr_source_path),
+            timestamp,
+            width,
+            height,
+        })
+    }
+
+    /// 将 RGBA 像素数据转为归档截图
     #[cfg(target_os = "windows")]
-    fn save_rgba_to_jpeg(
+    fn persist_rgba_capture(
         &self,
         pixels: &[u8],
         width: u32,
         height: u32,
-        path: &Path,
+        screenshots_dir: &Path,
+        time_str: &str,
         timestamp: i64,
     ) -> Result<ScreenshotResult> {
-        // 从 RGBA 创建图像
         let img = image::RgbaImage::from_raw(width, height, pixels.to_vec())
             .ok_or_else(|| AppError::Screenshot("创建图像失败".to_string()))?;
-
-        let mut dynamic_image = DynamicImage::ImageRgba8(img);
-
-        // 缩放
-        if width > self.config.max_width {
-            let scale = self.config.max_width as f32 / width as f32;
-            let new_height = (height as f32 * scale) as u32;
-            dynamic_image =
-                dynamic_image.resize(self.config.max_width, new_height, FilterType::Lanczos3);
-        }
-
-        let final_width = dynamic_image.width();
-        let final_height = dynamic_image.height();
-
-        // 保存为 JPEG
-        let rgb_image = dynamic_image.to_rgb8();
-        let mut output_file = std::fs::File::create(path)?;
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut output_file,
-            self.config.jpeg_quality,
-        );
-        encoder.encode(
-            rgb_image.as_raw(),
-            final_width,
-            final_height,
-            ColorType::Rgb8.into(),
-        )?;
-
-        let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        log::info!(
-            "GDI 截屏保存到: {:?} ({}x{}, {} KB)",
-            path,
-            final_width,
-            final_height,
-            file_size / 1024
-        );
-
-        Ok(ScreenshotResult {
-            path: path.to_path_buf(),
+        self.persist_dynamic_image_capture(
+            DynamicImage::ImageRgba8(img),
+            screenshots_dir,
+            time_str,
             timestamp,
-            width: final_width,
-            height: final_height,
-        })
+        )
     }
 
     /// 执行截屏（macOS）
@@ -649,7 +654,7 @@ impl ScreenshotService {
         let screenshots_dir = self.data_dir.join("screenshots").join(&date_str);
         std::fs::create_dir_all(&screenshots_dir)?;
 
-        let mut dynamic_image = if should_capture_all_displays(&self.config) {
+        let dynamic_image = if should_capture_all_displays(&self.config) {
             self.capture_all_displays_macos(&screenshots_dir, &time_str)?
         } else {
             let screen = if let Some((x, y)) = capture_target_point(active_window) {
@@ -682,51 +687,12 @@ impl ScreenshotService {
             )?)
         };
 
-        let orig_width = dynamic_image.width();
-        let orig_height = dynamic_image.height();
-
-        if orig_width > self.config.max_width {
-            let scale = self.config.max_width as f32 / orig_width as f32;
-            let new_height = (orig_height as f32 * scale) as u32;
-            dynamic_image =
-                dynamic_image.resize(self.config.max_width, new_height, FilterType::Lanczos3);
-        }
-
-        let final_width = dynamic_image.width();
-        let final_height = dynamic_image.height();
-
-        let filename = format!("{time_str}.jpg");
-        let path = screenshots_dir.join(&filename);
-
-        let rgb_image = dynamic_image.to_rgb8();
-        let mut output_file = std::fs::File::create(&path)?;
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut output_file,
-            self.config.jpeg_quality,
-        );
-        encoder.encode(
-            rgb_image.as_raw(),
-            final_width,
-            final_height,
-            ColorType::Rgb8.into(),
-        )?;
-
-        let timestamp = now.timestamp();
-        let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        log::info!(
-            "截屏保存到: {:?} ({}x{}, {} KB)",
-            path,
-            final_width,
-            final_height,
-            file_size / 1024
-        );
-
-        Ok(ScreenshotResult {
-            path,
-            timestamp,
-            width: final_width,
-            height: final_height,
-        })
+        self.persist_dynamic_image_capture(
+            dynamic_image,
+            &screenshots_dir,
+            &time_str,
+            now.timestamp(),
+        )
     }
 
     #[cfg(target_os = "macos")]
@@ -774,7 +740,11 @@ impl ScreenshotService {
             let _ = std::fs::remove_file(&temp_png);
             return Err(AppError::Screenshot(format!(
                 "screencapture 截图失败: {}",
-                if stderr.is_empty() { "未知错误" } else { &stderr }
+                if stderr.is_empty() {
+                    "未知错误"
+                } else {
+                    &stderr
+                }
             )));
         }
 
@@ -870,8 +840,6 @@ impl ScreenshotService {
         std::fs::create_dir_all(&screenshots_dir)?;
 
         let temp_png = screenshots_dir.join(format!("{time_str}_temp.png"));
-        let final_jpg = screenshots_dir.join(format!("{time_str}.jpg"));
-
         // 尝试使用 scrot（常见 X11 截屏工具）
         let scrot_result = Command::new("scrot")
             .args(["-o", &temp_png.to_string_lossy()])
@@ -908,56 +876,7 @@ impl ScreenshotService {
             ));
         }
 
-        // 读取并处理截屏
-        let img = image::open(&temp_png)
-            .map_err(|e| AppError::Screenshot(format!("读取截屏失败: {e}")))?;
-
-        let orig_width = img.width();
-        let orig_height = img.height();
-
-        let mut dynamic_image = img;
-        if orig_width > self.config.max_width {
-            let scale = self.config.max_width as f32 / orig_width as f32;
-            let new_height = (orig_height as f32 * scale) as u32;
-            dynamic_image =
-                dynamic_image.resize(self.config.max_width, new_height, FilterType::Lanczos3);
-        }
-
-        let final_width = dynamic_image.width();
-        let final_height = dynamic_image.height();
-
-        let rgb_image = dynamic_image.to_rgb8();
-        let mut output_file = std::fs::File::create(&final_jpg)?;
-        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-            &mut output_file,
-            self.config.jpeg_quality,
-        );
-        encoder.encode(
-            rgb_image.as_raw(),
-            final_width,
-            final_height,
-            ColorType::Rgb8.into(),
-        )?;
-
-        // 删除临时 PNG
-        let _ = std::fs::remove_file(&temp_png);
-
-        let timestamp = now.timestamp();
-        let file_size = std::fs::metadata(&final_jpg).map(|m| m.len()).unwrap_or(0);
-        log::info!(
-            "截屏保存到: {:?} ({}x{}, {} KB)",
-            final_jpg,
-            final_width,
-            final_height,
-            file_size / 1024
-        );
-
-        Ok(ScreenshotResult {
-            path: final_jpg,
-            timestamp,
-            width: final_width,
-            height: final_height,
-        })
+        self.persist_existing_png_capture(&temp_png, &screenshots_dir, &time_str, now.timestamp())
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -1033,6 +952,102 @@ fn capture_target_point(
 
 fn should_capture_all_displays(config: &ScreenshotConfig) -> bool {
     config.display_mode == ScreenshotDisplayMode::All
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn prepare_archive_image_with_config(
+    dynamic_image: DynamicImage,
+    config: &ScreenshotConfig,
+) -> DynamicImage {
+    let width = dynamic_image.width();
+    let height = dynamic_image.height();
+
+    if width > config.max_width {
+        let scale = config.max_width as f32 / width as f32;
+        let new_height = (height as f32 * scale) as u32;
+        dynamic_image.resize(config.max_width, new_height, FilterType::Lanczos3)
+    } else {
+        dynamic_image
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn save_archive_jpeg_with_quality(
+    dynamic_image: &DynamicImage,
+    archive_path: &Path,
+    jpeg_quality: u8,
+) -> Result<()> {
+    let rgb_image = dynamic_image.to_rgb8();
+    let mut output_file = std::fs::File::create(archive_path)?;
+    let mut encoder =
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output_file, jpeg_quality);
+    encoder.encode(
+        rgb_image.as_raw(),
+        rgb_image.width(),
+        rgb_image.height(),
+        ColorType::Rgb8.into(),
+    )?;
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn capture_output_paths(
+    data_dir: &Path,
+    screenshots_dir: &Path,
+    time_str: &str,
+) -> (PathBuf, PathBuf) {
+    let date_str = screenshots_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("unknown-date");
+    (
+        screenshots_dir.join(format!("{time_str}.jpg")),
+        ocr_temp_root(data_dir)
+            .join(date_str)
+            .join(format!("{time_str}_ocr.png")),
+    )
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn move_or_copy_file(from: &Path, to: &Path) -> Result<()> {
+    if from == to {
+        return Ok(());
+    }
+
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            std::fs::copy(from, to)?;
+            let _ = std::fs::remove_file(from);
+            Ok(())
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn ocr_temp_root(data_dir: &Path) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    data_dir.to_string_lossy().hash(&mut hasher);
+    std::env::temp_dir()
+        .join("work-review")
+        .join(format!("ocr-{:016x}", hasher.finish()))
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn ensure_parent_dir(path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
+fn cleanup_stale_ocr_temp_dir(data_dir: &Path) -> Result<()> {
+    let temp_root = ocr_temp_root(data_dir);
+    if temp_root.exists() {
+        std::fs::remove_dir_all(&temp_root)?;
+    }
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -1114,12 +1129,13 @@ fn capture_target_hmonitor(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        capture_target_point, should_capture_all_displays, ScreenshotService,
-    };
+    use super::{capture_target_point, should_capture_all_displays, ScreenshotService};
     use crate::config::{ScreenshotDisplayMode, StorageConfig};
     use crate::monitor::{ActiveWindow, WindowBounds};
+    use image::{DynamicImage, Rgba, RgbaImage};
+    use std::fs;
     use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn 应按窗口中心点选择目标屏幕() {
@@ -1191,5 +1207,41 @@ mod tests {
             super::macos_capture_rect(-1512, -982, 1512, 982),
             "-1512,-982,1512,982"
         );
+    }
+
+    #[test]
+    fn 截图归档应缩放为jpg并将ocr临时图移出截图目录() {
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let data_dir = std::env::temp_dir().join(format!("work-review-shot-test-{unique_suffix}"));
+        let screenshots_dir = data_dir.join("screenshots").join("2026-04-02");
+        fs::create_dir_all(&screenshots_dir).unwrap();
+
+        let storage = StorageConfig {
+            jpeg_quality: 85,
+            max_image_width: 1440,
+            ..StorageConfig::default()
+        };
+        let service = ScreenshotService::new(&data_dir, &storage);
+        let image =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(3024, 1964, Rgba([24, 48, 96, 255])));
+
+        let result = service
+            .persist_dynamic_image_capture(image, &screenshots_dir, "101530_123", 0)
+            .unwrap();
+        let archive = image::open(&result.path).unwrap();
+
+        assert_eq!(result.path, screenshots_dir.join("101530_123.jpg"));
+        assert_eq!(archive.width(), 1440);
+        assert_eq!(archive.height(), 935);
+
+        let ocr_temp_path = result.ocr_source_path.unwrap();
+        assert!(ocr_temp_path.ends_with("101530_123_ocr.png"));
+        assert!(!ocr_temp_path.starts_with(&screenshots_dir));
+
+        let _ = fs::remove_dir_all(&data_dir);
+        let _ = fs::remove_dir_all(super::ocr_temp_root(&data_dir));
     }
 }

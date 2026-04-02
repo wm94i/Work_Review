@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.33] - 2026-04-02
+
+### 修复
+- 修复截图归档链路意外绕过缩放与 JPEG 压缩的问题：截图现重新按 `max_width` 缩放并以 `jpg` 保存，避免原尺寸无损落盘导致体积异常膨胀。
+- 修复 OCR 临时源图 `_ocr.png` 落在截图目录且在异常中断、OCR 跳过或写库失败后更容易残留的问题：临时图现改为写入系统临时目录，并在识别完成、失败收尾和应用重启时清理。
+- 修复手动截图在活动记录写入数据库失败后仍可能残留归档图或 OCR 临时图的问题，避免本地数据目录持续积累无主文件。
+
+### 优化
+- 优化多平台截图后处理链路：统一复用同一套缩放与 JPEG 编码逻辑，降低不同平台后续再次偏离归档格式的回归风险。
+- 优化 OCR 输入与截图归档解耦方式：OCR 现优先读取独立临时源图，归档图仅负责长期保存，便于后续继续分别调整识别与存储策略。
+
 ## [1.0.32] - 2026-04-01
 
 ### 新增

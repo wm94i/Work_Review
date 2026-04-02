@@ -4440,9 +4440,29 @@ pub async fn take_screenshot(state: State<'_, Arc<Mutex<AppState>>>) -> Result<A
     };
 
     // 保存到数据库
-    {
+    let insert_result = {
         let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
-        state.database.insert_activity(&activity)?;
+        state.database.insert_activity(&activity)
+    };
+
+    if let Err(error) = insert_result {
+        let _ = std::fs::remove_file(&screenshot_result.path);
+        if let Some(temp_path) = screenshot_result
+            .ocr_source_path
+            .as_ref()
+            .filter(|path| *path != &screenshot_result.path)
+        {
+            let _ = std::fs::remove_file(temp_path);
+        }
+        return Err(error);
+    }
+
+    if let Some(temp_path) = screenshot_result
+        .ocr_source_path
+        .as_ref()
+        .filter(|path| *path != &screenshot_result.path)
+    {
+        let _ = std::fs::remove_file(temp_path);
     }
 
     Ok(activity)
