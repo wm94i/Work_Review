@@ -1,7 +1,6 @@
 <script>
   import { createEventDispatcher, onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart';
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
 
   export let config;
@@ -15,7 +14,7 @@
   
   onMount(async () => {
     try {
-      autoStartEnabled = await isAutostartEnabled();
+      autoStartEnabled = await invoke('is_autostart_enabled');
       if (config.auto_start !== autoStartEnabled) {
         config.auto_start = autoStartEnabled;
         dispatch('change', config);
@@ -74,13 +73,17 @@
   // 开机自启动切换
   async function toggleAutoStart() {
     try {
+      autoStartEnabled = await invoke('is_autostart_enabled');
       if (autoStartEnabled) {
-        await disableAutostart();
-        autoStartEnabled = false;
+        try {
+          await invoke('disable_autostart');
+        } catch (e) {
+          console.error('设置开机自启动失败:1', e);
+        }
       } else {
-        await enableAutostart();
-        autoStartEnabled = true;
+        await invoke('enable_autostart');
       }
+      autoStartEnabled = await invoke('is_autostart_enabled');
       config.auto_start = autoStartEnabled;
       dispatch('change', config);
     } catch (e) {
