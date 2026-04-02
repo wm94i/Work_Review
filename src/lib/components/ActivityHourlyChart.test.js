@@ -10,7 +10,10 @@ test('按小时活跃度图表应将所选时段直接显示在柱状图内', as
   assert.match(source, /aria-pressed=\{selectedHour === bucket\.hour\}/);
   assert.match(source, /on:click=\{\(\) => selectHour\(bucket\.hour\)\}/);
   assert.match(source, /\{#if mode === 'column' && selectedHour === bucket\.hour\}/);
-  assert.match(source, /\{formatHourRangeLabel\(bucket\.hour\)\}/);
+  assert.match(
+    source,
+    /\{#if mode === 'column' && selectedHour === bucket\.hour\}[\s\S]*\{formatHourRangeLabel\(bucket\.hour\)\}[\s\S]*\{formatDurationLocalized\(bucket\.duration, \{ compact: true \}\)\}[\s\S]*\{\/if\}/
+  );
   assert.doesNotMatch(source, /hourlyChart\.selectedHour/);
   assert.doesNotMatch(source, /hourlyChart\.selectedHourHint/);
 });

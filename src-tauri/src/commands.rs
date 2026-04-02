@@ -5158,6 +5158,43 @@ fn normalize_macos_app_lookup_name(value: &str) -> String {
 }
 
 #[cfg(any(target_os = "macos", test))]
+fn push_normalized_macos_lookup_name(target: &mut Vec<String>, value: &str) {
+    let normalized = normalize_macos_app_lookup_name(value);
+    if normalized.is_empty() || target.iter().any(|existing| existing == &normalized) {
+        return;
+    }
+    target.push(normalized);
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_lookup_name_variants(value: &str) -> Vec<String> {
+    const ALIAS_GROUPS: &[&[&str]] = &[&["腾讯视频", "QQLive", "Tencent Video"]];
+
+    let normalized = normalize_macos_app_lookup_name(value);
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+
+    let mut variants = Vec::new();
+    push_normalized_macos_lookup_name(&mut variants, value);
+
+    for group in ALIAS_GROUPS {
+        if !group
+            .iter()
+            .any(|alias| normalize_macos_app_lookup_name(alias) == normalized)
+        {
+            continue;
+        }
+
+        for alias in *group {
+            push_normalized_macos_lookup_name(&mut variants, alias);
+        }
+    }
+
+    variants
+}
+
+#[cfg(any(target_os = "macos", test))]
 fn macos_significant_name_tokens(value: &str) -> Vec<String> {
     const STOPWORDS: &[&str] = &["app", "browser", "desktop", "helper", "tools"];
 
@@ -5190,9 +5227,7 @@ fn macos_bundle_path_from_executable(executable_path: &str) -> Option<PathBuf> {
 }
 
 #[cfg(any(target_os = "macos", test))]
-fn macos_score_app_bundle_name(app_name: &str, bundle_name: &str) -> i32 {
-    let normalized_app = normalize_macos_app_lookup_name(app_name);
-    let normalized_bundle = normalize_macos_app_lookup_name(bundle_name);
+fn score_normalized_macos_app_bundle_name(normalized_app: &str, normalized_bundle: &str) -> i32 {
     if normalized_app.is_empty() || normalized_bundle.is_empty() {
         return 0;
     }
@@ -5221,6 +5256,24 @@ fn macos_score_app_bundle_name(app_name: &str, bundle_name: &str) -> i32 {
     }
 
     score
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_score_app_bundle_name(app_name: &str, bundle_name: &str) -> i32 {
+    let app_variants = macos_lookup_name_variants(app_name);
+    let bundle_variants = macos_lookup_name_variants(bundle_name);
+
+    let mut best_score = 0;
+    for normalized_app in &app_variants {
+        for normalized_bundle in &bundle_variants {
+            best_score = best_score.max(score_normalized_macos_app_bundle_name(
+                normalized_app,
+                normalized_bundle,
+            ));
+        }
+    }
+
+    best_score
 }
 
 #[cfg(target_os = "macos")]
@@ -6339,6 +6392,15 @@ mod tests {
         assert!(
             macos_score_app_bundle_name("antigravity_tools", "Antigravity Tools")
                 >= macos_score_app_bundle_name("antigravity_tools", "Antigravity")
+        );
+    }
+
+    #[test]
+    fn macos应用包名评分应兼容中文显示名与英文包名别名() {
+        assert!(macos_score_app_bundle_name("腾讯视频", "QQLive") > 0);
+        assert!(
+            macos_score_app_bundle_name("腾讯视频", "QQLive")
+                > macos_score_app_bundle_name("腾讯视频", "QQ")
         );
     }
 

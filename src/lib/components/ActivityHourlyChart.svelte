@@ -164,8 +164,13 @@
                 <div class="relative flex h-full min-w-0 flex-1 flex-col justify-end">
                   {#if mode === 'column' && selectedHour === bucket.hour}
                     <div class="pointer-events-none absolute left-1/2 top-1 z-10 -translate-x-1/2">
-                      <span class="whitespace-nowrap rounded-full bg-slate-900 px-2 py-1 text-[10px] font-medium text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
-                        {formatHourRangeLabel(bucket.hour)}
+                      <span class="flex min-w-[6.75rem] flex-col items-center rounded-2xl bg-slate-900 px-2.5 py-1.5 text-[10px] font-medium text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
+                        <span class="whitespace-nowrap">
+                          {formatHourRangeLabel(bucket.hour)}
+                        </span>
+                        <span class="mt-0.5 whitespace-nowrap text-[9px] opacity-80">
+                          {formatDurationLocalized(bucket.duration, { compact: true })}
+                        </span>
                       </span>
                     </div>
                   {/if}
