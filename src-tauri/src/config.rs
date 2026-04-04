@@ -105,6 +105,20 @@ impl AiProvider {
                 | AiProvider::MiniMax
         )
     }
+
+    /// 是否支持自动发现模型列表
+    pub fn supports_model_discovery(&self) -> bool {
+        matches!(
+            self,
+            AiProvider::Ollama
+                | AiProvider::OpenAI
+                | AiProvider::Gemini
+                | AiProvider::Claude
+                | AiProvider::SiliconFlow
+                | AiProvider::DeepSeek
+                | AiProvider::Moonshot
+        )
+    }
 }
 
 /// AI分析模式

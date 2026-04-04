@@ -38,6 +38,8 @@
   let unsubscribeLocale = () => {};
   let unlistenLocaleChanged = () => {};
   let handleVisibilityChange = null;
+  let handleContextMenu = null;
+  let handleKeydown = null;
   $: currentLocale = $locale;
 
   const RUNTIME_BUBBLE_MESSAGES = {
@@ -195,6 +197,23 @@
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
+    // 桌宠窗口不需要浏览器原生右键菜单和打印能力，避免误触后弹出系统界面。
+    handleContextMenu = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    handleKeydown = (event) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        (event.key === 'p' || event.key === 'P')
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    document.addEventListener('contextmenu', handleContextMenu);
+    document.addEventListener('keydown', handleKeydown, true);
+
     (async () => {
       try {
         state = await invoke('get_avatar_state');
@@ -261,6 +280,8 @@
       clearTimeout(positionSaveTimer);
       clearTimeout(motionTimer);
       if (handleVisibilityChange) document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (handleContextMenu) document.removeEventListener('contextmenu', handleContextMenu);
+      if (handleKeydown) document.removeEventListener('keydown', handleKeydown, true);
       unsubscribeLocale();
       unlistenLocaleChanged();
       unlistenState();

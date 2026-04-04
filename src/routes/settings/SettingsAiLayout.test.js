@@ -38,51 +38,61 @@ test('日报导出目录应从 AI 设置移到存储设置', async () => {
   assert.match(storageSource, /settingsStorage\.modeAllDesc/);
 });
 
-test('Ollama 提供商应支持获取模型列表并保留手动输入回退', async () => {
+test('支持模型发现的提供商应共用模型列表拉取与手动输入回退', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /invoke\('get_ollama_models'/);
-  assert.match(source, /refreshOllamaModels/);
-  assert.match(source, /ollamaModels/);
-  assert.match(source, /provider === 'ollama'/);
-  assert.match(source, /<select/);
+  assert.match(source, /invoke\('get_provider_models'/);
+  assert.match(source, /refreshProviderModels/);
+  assert.match(source, /providerModels/);
+  assert.match(source, /supports_model_discovery/);
   assert.match(source, /settingsAI\.manualModel/);
   assert.match(source, /settingsAI\.refreshModels/);
 });
 
-test('Ollama 刷新模型列表后应给出反馈并在当前模型失效时自动回填可用模型', async () => {
+test('支持模型发现的提供商刷新模型列表后应给出反馈并支持输入筛选', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /!ollamaModels.includes\(config\.text_model\.model\)/);
+  assert.match(source, /function getFilteredProviderModels\(\)/);
+  assert.match(source, /filter\(model =>/);
   assert.match(source, /settingsAI\.loadedModels/);
+  assert.match(source, /settingsAI\.suggestedModels/);
 });
 
-test('Ollama 模型列表为空时应保留当前模型值，避免下拉框显示空白', async () => {
+test('刷新模型列表按钮应显式调用刷新函数，避免点击事件对象覆盖提供商参数', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /let selectedOllamaModel = '';/);
-  assert.match(source, /function getOllamaFallbackOptionLabel\(\)/);
+  assert.match(source, /on:click=\{\(\) => refreshProviderModels\(\)\}/);
+  assert.doesNotMatch(source, /on:click=\{refreshProviderModels\}/);
+});
+
+test('模型列表为空时应保留当前模型值并继续允许手动输入', async () => {
+  const source = await readFile(
+    new URL('./components/SettingsAI.svelte', import.meta.url),
+    'utf8'
+  );
+
   assert.match(source, /settingsAI\.currentModelLoading/);
   assert.match(source, /settingsAI\.currentModelMissing/);
-  assert.match(source, /\{getOllamaFallbackOptionLabel\(\)\}/);
+  assert.match(source, /providerModelsLoading/);
+  assert.match(source, /providerModelsError/);
 });
 
-test('Ollama 下拉列表应只展示实际返回的模型，并明确区分手动输入值', async () => {
+test('建议列表应只展示匹配当前输入的实际模型，并明确区分手动输入值', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.doesNotMatch(source, /return \[config\.text_model\.model, \.\.\.ollamaModels\];/);
+  assert.doesNotMatch(source, /return \[config\.text_model\.model, \.\.\.providerModels\];/);
   assert.match(source, /settingsAI\.manualModelMissing/);
-  assert.match(source, /#each ollamaModels as model \(model\)/);
+  assert.match(source, /#each getFilteredProviderModels\(\) as model \(model\)/);
 });

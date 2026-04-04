@@ -2848,6 +2848,7 @@ async fn main() {
             commands::test_model,
             commands::get_ai_providers,
             commands::get_ollama_models,
+            commands::get_provider_models,
             commands::get_running_apps,
             commands::get_recent_apps,
             commands::get_app_category_overview,
