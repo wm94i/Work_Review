@@ -125,11 +125,10 @@
   let textTestMessage = '';
   let textConnectionVerified = false;
   let showApiKey = false;
-  let ollamaModels = [];
-  let ollamaModelsLoading = false;
-  let ollamaModelsError = '';
-  let ollamaModelsHint = '';
-  let selectedOllamaModel = '';
+  let providerModels = [];
+  let providerModelsLoading = false;
+  let providerModelsError = '';
+  let providerModelsHint = '';
   
   const unsubscribe = aiStore.subscribe(state => {
     textTestStatus = state.textTestStatus;
@@ -144,10 +143,7 @@
   // 当前提供商
   $: currentProvider = localizedProviders.find(p => p.id === config?.text_model?.provider) || localizedProviders[0];
   $: requiresApiKey = currentProvider?.requires_api_key ?? true;
-  $: isOllamaProvider = config?.text_model?.provider === 'ollama';
-  $: selectedOllamaModel = ollamaModels.includes(config?.text_model?.model || '')
-    ? config.text_model.model
-    : '';
+  $: providerSupportsModelDiscovery = currentProvider?.supports_model_discovery ?? false;
 
   // 是否选择了 AI 增强模式（决定是否展开配置面板）
   $: isAiMode = config.ai_mode === 'summary';
@@ -167,6 +163,7 @@
 
   function handleProviderChange(e) {
     const providerId = e.target.value;
+    const nextProvider = localizedProviders.find(p => p.id === providerId);
     
     // 缓存当前 provider 配置
     if (config.text_model.provider) {
@@ -187,11 +184,11 @@
     config.text_model.api_key = cached?.api_key || '';
     
     aiStore.reset();
-    if (providerId === 'ollama') {
-      refreshOllamaModels();
-    } else {
-      ollamaModels = [];
-      ollamaModelsError = '';
+    providerModels = [];
+    providerModelsError = '';
+    providerModelsHint = '';
+    if (nextProvider?.supports_model_discovery) {
+      refreshProviderModels(nextProvider);
     }
     dispatch('change', config);
   }
@@ -244,65 +241,88 @@
     }
   }
 
-  function getOllamaModelOptions() {
-    return ollamaModels;
+  function normalizeModelSearchValue(value) {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '');
   }
 
-  function getOllamaFallbackOptionLabel() {
-    const currentModel = config?.text_model?.model?.trim();
-    if (currentModel) {
-      return ollamaModelsLoading
-        ? t('settingsAI.currentModelLoading', { model: currentModel })
-        : t('settingsAI.currentModelMissing', { model: currentModel });
-    }
-    return ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.noModels');
+  function getModelMatchScore(model, query) {
+    const normalizedQuery = normalizeModelSearchValue(query);
+    const normalizedModel = normalizeModelSearchValue(model);
+    const rawModel = String(model || '').toLowerCase();
+
+    if (!normalizedQuery) return 1;
+    if (!normalizedModel) return 0;
+    if (normalizedModel === normalizedQuery) return 500;
+    if (normalizedModel.startsWith(normalizedQuery)) return 320;
+    if (normalizedModel.includes(normalizedQuery)) return 180;
+    if (rawModel.startsWith(query)) return 140;
+    if (rawModel.includes(query)) return 90;
+    return 0;
   }
 
-  function hasManualOllamaModelOutsideList() {
+  function getFilteredProviderModels() {
+    const query = (config?.text_model?.model || '').trim().toLowerCase();
+    const filtered = query
+      ? providerModels.filter(model => getModelMatchScore(model, query) > 0)
+      : providerModels.slice();
+
+    return filtered
+      .sort((left, right) => {
+        const scoreDiff = getModelMatchScore(right, query) - getModelMatchScore(left, query);
+        return scoreDiff !== 0 ? scoreDiff : left.localeCompare(right);
+      })
+      .slice(0, 8);
+  }
+
+  function hasManualModelOutsideList() {
     const currentModel = config?.text_model?.model?.trim();
     return !!(
       currentModel &&
-      ollamaModels.length > 0 &&
-      !ollamaModels.includes(currentModel)
+      providerModels.length > 0 &&
+      !providerModels.includes(currentModel)
     );
   }
 
-  function handleOllamaModelSelect() {
-    if (!selectedOllamaModel) return;
-    config.text_model.model = selectedOllamaModel;
+  function selectSuggestedModel(model) {
+    config.text_model.model = model;
     handleChange();
   }
 
-  async function refreshOllamaModels() {
-    if (!isOllamaProvider || !config?.text_model?.endpoint) return;
+  async function refreshProviderModels(provider = currentProvider) {
+    const supportsDiscovery = provider?.supports_model_discovery ?? false;
+    const providerRequiresApiKey = provider?.requires_api_key ?? true;
 
-    ollamaModelsLoading = true;
-    ollamaModelsError = '';
-    ollamaModelsHint = '';
+    if (!supportsDiscovery || !config?.text_model?.endpoint) return;
+    if (providerRequiresApiKey && !config?.text_model?.api_key) {
+      providerModelsError = t('settingsAI.modelListRequiresApiKey');
+      providerModelsHint = '';
+      return;
+    }
+
+    providerModelsLoading = true;
+    providerModelsError = '';
+    providerModelsHint = '';
     try {
-      const models = await invoke('get_ollama_models', {
-        endpoint: config.text_model.endpoint,
+      const models = await invoke('get_provider_models', {
+        modelConfig: {
+          provider: config.text_model.provider,
+          endpoint: config.text_model.endpoint,
+          api_key: config.text_model.api_key,
+          model: config.text_model.model,
+        }
       });
-      ollamaModels = Array.isArray(models) ? models : [];
-      ollamaModelsHint = ollamaModels.length > 0
-        ? t('settingsAI.loadedModels', { count: ollamaModels.length })
+      providerModels = Array.isArray(models) ? models : [];
+      providerModelsHint = providerModels.length > 0
+        ? t('settingsAI.loadedModels', { count: providerModels.length })
         : t('settingsAI.noModelsFound');
-      if (
-        ollamaModels.length > 0 &&
-        (
-          !config.text_model.model ||
-          !ollamaModels.includes(config.text_model.model)
-        )
-      ) {
-        config.text_model.model = ollamaModels[0];
-        dispatch('change', config);
-      }
     } catch (e) {
-      ollamaModels = [];
-      ollamaModelsError = e.toString();
-      ollamaModelsHint = '';
+      providerModels = [];
+      providerModelsError = e.toString();
+      providerModelsHint = '';
     } finally {
-      ollamaModelsLoading = false;
+      providerModelsLoading = false;
     }
   }
 
@@ -326,8 +346,8 @@
       await testTextModel();
     }
 
-    if (isOllamaProvider && config?.text_model?.endpoint) {
-      await refreshOllamaModels();
+    if (providerSupportsModelDiscovery && config?.text_model?.endpoint && (!requiresApiKey || config?.text_model?.api_key)) {
+      await refreshProviderModels();
     }
   });
 
@@ -482,61 +502,12 @@
     <div>
       <div class="flex items-end gap-2">
         <div class="flex-1">
-          <label for="ai-model" class="settings-label mb-1.5">{t('settingsAI.model')}</label>
-          {#if isOllamaProvider}
-            {#key `${selectedOllamaModel}|${config?.text_model?.model || ''}|${ollamaModels.join('|')}|${ollamaModelsLoading}`}
-              <select
-                id="ai-model"
-                bind:value={selectedOllamaModel}
-                on:change={handleOllamaModelSelect}
-                class="control-input"
-                disabled={ollamaModelsLoading || getOllamaModelOptions().length === 0}
-              >
-                {#if getOllamaModelOptions().length === 0}
-                    <option value="">
-                      {getOllamaFallbackOptionLabel()}
-                    </option>
-                {:else}
-                  {#if hasManualOllamaModelOutsideList()}
-                    <option value="" disabled>
-                      {t('settingsAI.manualModelMissing')}
-                    </option>
-                  {/if}
-                  {#each ollamaModels as model (model)}
-                    <option value={model}>{model}</option>
-                  {/each}
-                {/if}
-              </select>
-            {/key}
-          {:else}
-            <input
-              id="ai-model"
-              type="text"
-              bind:value={config.text_model.model}
-              on:change={handleChange}
-              class="control-input"
-              placeholder={currentProvider?.default_model || 'qwen2.5'}
-            />
-          {/if}
-        </div>
-
-        {#if isOllamaProvider}
-          <button
-            type="button"
-            on:click={refreshOllamaModels}
-            disabled={ollamaModelsLoading || !config.text_model.endpoint}
-            class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.refreshModels')}
-          </button>
-        {/if}
-      </div>
-
-      {#if isOllamaProvider}
-        <div class="mt-3">
-          <label for="ai-model-manual" class="settings-label mb-1.5">{t('settingsAI.manualModel')}</label>
+          <div class="mb-1.5 flex items-center justify-between gap-3">
+            <label for="ai-model" class="settings-label">{t('settingsAI.model')}</label>
+            <span class="text-[11px] text-slate-400 dark:text-slate-500">{t('settingsAI.manualModel')}</span>
+          </div>
           <input
-            id="ai-model-manual"
+            id="ai-model"
             type="text"
             bind:value={config.text_model.model}
             on:change={handleChange}
@@ -544,12 +515,52 @@
             placeholder={currentProvider?.default_model || 'qwen2.5'}
           />
         </div>
-        {#if ollamaModelsError}
-          <p class="settings-note text-rose-500 dark:text-rose-400">{ollamaModelsError}</p>
-        {:else if ollamaModelsHint}
-          <p class="settings-note">{t('settingsAI.modelHint', { hint: ollamaModelsHint })}</p>
+
+        {#if providerSupportsModelDiscovery}
+          <button
+            type="button"
+            on:click={() => refreshProviderModels()}
+            disabled={providerModelsLoading || !config.text_model.endpoint || (requiresApiKey && !config.text_model.api_key)}
+            class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {providerModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.refreshModels')}
+          </button>
+        {/if}
+      </div>
+
+      {#if providerSupportsModelDiscovery}
+        <div class="mt-3">
+          <p class="settings-label mb-1.5">{t('settingsAI.suggestedModels')}</p>
+          {#if getFilteredProviderModels().length > 0}
+            <div class="flex flex-wrap gap-2">
+              {#each getFilteredProviderModels() as model (model)}
+                <button
+                  type="button"
+                  on:click={() => selectSuggestedModel(model)}
+                  class="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
+                >
+                  {model}
+                </button>
+              {/each}
+            </div>
+          {:else if hasManualModelOutsideList()}
+            <p class="settings-note">{t('settingsAI.manualModelMissing')}</p>
+          {:else}
+            <p class="settings-note">
+              {providerModelsLoading
+                ? t('settingsAI.currentModelLoading', { model: config?.text_model?.model || currentProvider?.default_model || '' })
+                : t('settingsAI.currentModelMissing', { model: config?.text_model?.model || currentProvider?.default_model || '' })}
+            </p>
+          {/if}
+        </div>
+        {#if providerModelsError}
+          <p class="settings-note text-rose-500 dark:text-rose-400">{providerModelsError}</p>
+        {:else if providerModelsHint}
+          <p class="settings-note">{t('settingsAI.modelHint', { hint: providerModelsHint })}</p>
+        {:else if requiresApiKey && !config.text_model.api_key}
+          <p class="settings-note">{t('settingsAI.modelListRequiresApiKey')}</p>
         {:else}
-          <p class="settings-note">{t('settingsAI.ollamaHint')}</p>
+          <p class="settings-note">{t('settingsAI.providerModelHint')}</p>
         {/if}
       {:else if currentProvider?.description}
         <p class="settings-note">{currentProvider.description}</p>

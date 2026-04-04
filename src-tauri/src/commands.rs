@@ -3473,16 +3473,161 @@ fn parse_ollama_model_names(data: &serde_json::Value) -> Result<Vec<String>, App
     Ok(names)
 }
 
-#[tauri::command]
-pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError> {
+fn normalize_model_names(mut names: Vec<String>) -> Vec<String> {
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn parse_openai_compatible_model_names(
+    data: &serde_json::Value,
+    provider_name: &str,
+) -> Result<Vec<String>, AppError> {
+    let models = data["data"]
+        .as_array()
+        .ok_or_else(|| AppError::Unknown(format!("无法获取 {provider_name} 模型列表")))?;
+
+    let names = models
+        .iter()
+        .filter_map(|model| model["id"].as_str().map(|name| name.trim().to_string()))
+        .filter(|name| !name.is_empty())
+        .collect::<Vec<_>>();
+
+    Ok(normalize_model_names(names))
+}
+
+fn parse_gemini_model_names(data: &serde_json::Value) -> Result<Vec<String>, AppError> {
+    let models = data["models"]
+        .as_array()
+        .ok_or_else(|| AppError::Unknown("无法获取 Gemini 模型列表".to_string()))?;
+
+    let names = models
+        .iter()
+        .filter(|model| {
+            model["supportedGenerationMethods"]
+                .as_array()
+                .map(|methods| {
+                    methods
+                        .iter()
+                        .filter_map(|method| method.as_str())
+                        .any(|method| method == "generateContent")
+                })
+                .unwrap_or(false)
+        })
+        .filter_map(|model| {
+            model["baseModelId"]
+                .as_str()
+                .map(|name| name.trim().to_string())
+                .filter(|name| !name.is_empty())
+                .or_else(|| {
+                    model["name"]
+                        .as_str()
+                        .map(|name| name.trim().trim_start_matches("models/").to_string())
+                        .filter(|name| !name.is_empty())
+                })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(normalize_model_names(names))
+}
+
+fn normalize_model_endpoint(endpoint: &str) -> Result<String, AppError> {
     let endpoint = endpoint.trim().trim_end_matches('/').to_string();
     if endpoint.is_empty() {
-        return Err(AppError::Config("Ollama 地址不能为空".to_string()));
+        return Err(AppError::Config("模型服务地址不能为空".to_string()));
+    }
+    Ok(endpoint)
+}
+
+fn gemini_models_endpoint(endpoint: &str) -> Result<String, AppError> {
+    let endpoint = normalize_model_endpoint(endpoint)?;
+    if endpoint.ends_with("/v1beta") {
+        Ok(endpoint)
+    } else if endpoint.ends_with("/v1") {
+        Ok(format!("{endpoint}beta"))
+    } else {
+        Ok(format!("{endpoint}/v1beta"))
+    }
+}
+
+fn build_model_discovery_client() -> Result<reqwest::Client, AppError> {
+    Ok(reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .connect_timeout(Duration::from_secs(10))
+        .build()?)
+}
+
+async fn fetch_openai_compatible_models(
+    provider_name: &str,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<Vec<String>, AppError> {
+    let endpoint = normalize_model_endpoint(endpoint)?;
+    let client = build_model_discovery_client()?;
+    let response = client
+        .get(format!("{endpoint}/models"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .map_err(|error| AppError::Analysis(format!("无法连接到 {provider_name} 服务: {error}")))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Analysis(format!(
+            "{provider_name} 服务返回错误: {}",
+            response.status()
+        )));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+    let data: serde_json::Value = response.json().await?;
+    parse_openai_compatible_model_names(&data, provider_name)
+}
+
+async fn fetch_claude_models(endpoint: &str, api_key: &str) -> Result<Vec<String>, AppError> {
+    let endpoint = normalize_model_endpoint(endpoint)?;
+    let client = build_model_discovery_client()?;
+    let response = client
+        .get(format!("{endpoint}/models"))
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .await
+        .map_err(|error| AppError::Analysis(format!("无法连接到 Claude 服务: {error}")))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Analysis(format!(
+            "Claude 服务返回错误: {}",
+            response.status()
+        )));
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    parse_openai_compatible_model_names(&data, "Claude")
+}
+
+async fn fetch_gemini_models(endpoint: &str, api_key: &str) -> Result<Vec<String>, AppError> {
+    let endpoint = gemini_models_endpoint(endpoint)?;
+    let client = build_model_discovery_client()?;
+    let response = client
+        .get(format!("{endpoint}/models?key={api_key}"))
+        .send()
+        .await
+        .map_err(|error| AppError::Analysis(format!("无法连接到 Gemini 服务: {error}")))?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Analysis(format!(
+            "Gemini 服务返回错误: {}",
+            response.status()
+        )));
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    parse_gemini_model_names(&data)
+}
+
+#[tauri::command]
+pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError> {
+    let endpoint = normalize_model_endpoint(&endpoint)?;
+    let client = build_model_discovery_client()?;
     let response = client
         .get(format!("{endpoint}/api/tags"))
         .send()
@@ -3500,6 +3645,62 @@ pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError
     parse_ollama_model_names(&data)
 }
 
+#[tauri::command]
+pub async fn get_provider_models(model_config: ModelConfig) -> Result<Vec<String>, AppError> {
+    if !model_config.provider.supports_model_discovery() {
+        return Err(AppError::Analysis("当前提供商暂不支持自动拉取模型列表".to_string()));
+    }
+
+    match model_config.provider {
+        AiProvider::Ollama => get_ollama_models(model_config.endpoint).await,
+        AiProvider::Gemini => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("Gemini API Key 未配置".to_string()))?;
+            fetch_gemini_models(&model_config.endpoint, api_key).await
+        }
+        AiProvider::Claude => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("Claude API Key 未配置".to_string()))?;
+            fetch_claude_models(&model_config.endpoint, api_key).await
+        }
+        AiProvider::OpenAI => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("OpenAI API Key 未配置".to_string()))?;
+            fetch_openai_compatible_models("OpenAI", &model_config.endpoint, api_key).await
+        }
+        AiProvider::SiliconFlow => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("SiliconFlow API Key 未配置".to_string()))?;
+            fetch_openai_compatible_models("SiliconFlow", &model_config.endpoint, api_key).await
+        }
+        AiProvider::DeepSeek => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("DeepSeek API Key 未配置".to_string()))?;
+            fetch_openai_compatible_models("DeepSeek", &model_config.endpoint, api_key).await
+        }
+        AiProvider::Moonshot => {
+            let api_key = model_config
+                .api_key
+                .as_deref()
+                .ok_or_else(|| AppError::Config("Moonshot API Key 未配置".to_string()))?;
+            fetch_openai_compatible_models("Moonshot", &model_config.endpoint, api_key).await
+        }
+        _ => Err(AppError::Analysis(
+            "当前提供商暂不支持自动拉取模型列表".to_string(),
+        )),
+    }
+}
+
 /// 获取支持的 AI 提供商列表
 #[tauri::command]
 pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
@@ -3512,6 +3713,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "qwen2.5",
             "requires_api_key": false,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Ollama.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "openai",
@@ -3521,6 +3723,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "gpt-4o-mini",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::OpenAI.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "siliconflow",
@@ -3530,6 +3733,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "Qwen/Qwen2.5-7B-Instruct",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::SiliconFlow.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "deepseek",
@@ -3539,6 +3743,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "deepseek-chat",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::DeepSeek.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "qwen",
@@ -3548,6 +3753,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "qwen-turbo",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Qwen.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "zhipu",
@@ -3557,6 +3763,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "glm-4-flash",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Zhipu.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "moonshot",
@@ -3566,6 +3773,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "moonshot-v1-8k",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Moonshot.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "doubao",
@@ -3575,6 +3783,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "doubao-lite-4k",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Doubao.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "minimax",
@@ -3584,6 +3793,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "MiniMax-M2.5",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::MiniMax.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "gemini",
@@ -3593,6 +3803,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "gemini-1.5-flash",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Gemini.supports_model_discovery(),
         }),
         serde_json::json!({
             "id": "claude",
@@ -3602,6 +3813,7 @@ pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {
             "default_model": "claude-3-haiku-20240307",
             "requires_api_key": true,
             "supports_vision": false,
+            "supports_model_discovery": AiProvider::Claude.supports_model_discovery(),
         }),
     ])
 }
@@ -5997,11 +6209,12 @@ mod tests {
         export_daily_report_markdown, format_browser_url_for_display, macos_score_app_bundle_name,
         merge_windows_icon_lookup_candidates, normalize_macos_app_lookup_name,
         normalize_saved_report_ai_mode, openai_connection_test_max_tokens,
-        overview_week_bounds_for_date, parse_ollama_model_names, resolve_saved_report_metadata,
+        overview_week_bounds_for_date, parse_gemini_model_names, parse_ollama_model_names,
+        resolve_saved_report_metadata,
         sum_daily_stats, AssistantChatMessage, AssistantQuestionKind, AssistantReasoningMode,
         UPDATER_JSON_ENDPOINTS, UPDATE_CONNECT_TIMEOUT_SECS, UPDATE_REQUEST_TIMEOUT_SECS,
     };
-    use crate::config::AiMode;
+    use crate::config::{AiMode, AiProvider};
     use crate::database::{
         AppUsage, BrowserUsage, CategoryUsage, DailyStats, DomainUsage, HourlyActivityBucket,
         MemorySearchItem, UrlDetail, UrlUsage,
@@ -6488,6 +6701,50 @@ mod tests {
             vec!["llama3.1:8b".to_string(), "qwen2.5:latest".to_string()]
         );
     }
+
+    #[test]
+    fn 应能解析_gemini_模型列表并过滤不可生成模型() {
+        let payload = serde_json::json!({
+            "models": [
+                {
+                    "name": "models/gemini-2.5-flash",
+                    "baseModelId": "gemini-2.5-flash",
+                    "supportedGenerationMethods": ["generateContent", "countTokens"]
+                },
+                {
+                    "name": "models/text-embedding-004",
+                    "baseModelId": "text-embedding-004",
+                    "supportedGenerationMethods": ["embedContent"]
+                },
+                {
+                    "name": "models/gemini-2.5-pro",
+                    "supportedGenerationMethods": ["generateContent"]
+                }
+            ]
+        });
+
+        let names = parse_gemini_model_names(&payload).expect("应能解析 Gemini 模型列表");
+
+        assert_eq!(
+            names,
+            vec!["gemini-2.5-flash".to_string(), "gemini-2.5-pro".to_string()]
+        );
+    }
+
+    #[test]
+    fn 应声明支持自动发现模型列表的提供商() {
+        assert!(AiProvider::Ollama.supports_model_discovery());
+        assert!(AiProvider::OpenAI.supports_model_discovery());
+        assert!(AiProvider::Gemini.supports_model_discovery());
+        assert!(AiProvider::Claude.supports_model_discovery());
+        assert!(AiProvider::SiliconFlow.supports_model_discovery());
+        assert!(AiProvider::DeepSeek.supports_model_discovery());
+        assert!(!AiProvider::Qwen.supports_model_discovery());
+        assert!(!AiProvider::Zhipu.supports_model_discovery());
+        assert!(!AiProvider::Doubao.supports_model_discovery());
+        assert!(!AiProvider::MiniMax.supports_model_discovery());
+    }
+
     #[test]
     fn 助手问题分类应识别阶段总结与过程复盘和证据追问() {
         assert_eq!(
