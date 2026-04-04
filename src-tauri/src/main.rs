@@ -8,6 +8,7 @@ extern crate objc;
 
 mod activity_classifier;
 mod analysis;
+mod autostart;
 mod avatar_engine;
 mod commands;
 mod config;
@@ -2544,17 +2545,18 @@ async fn main() {
     let app_lifecycle_state = Arc::new(Mutex::new(AppLifecycleState::default()));
 
     // 构建 Tauri 应用
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
-        // 开机自启动插件（macOS 使用 LaunchAgent，Windows 使用注册表）
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            Some(vec![AUTOSTART_LAUNCH_ARG]),
-        ))
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(not(windows))]
+    let builder = builder.plugin(tauri_plugin_autostart::init(
+        tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+        Some(vec![AUTOSTART_LAUNCH_ARG]),
+    ));
+    builder
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // 当用户尝试打开第二个实例时，将焦点给到现有窗口
             if let Err(e) = reveal_main_window(&app.clone(), None) {
@@ -2593,6 +2595,10 @@ async fn main() {
             }
         })
         .setup(|app| {
+            if let Err(e) = autostart::init_autostart(&app.handle()) {
+                log::warn!("初始化开机自启功能失败: {e}");
+            }
+
             let window = app.get_webview_window("main").unwrap();
             configure_main_window(&window);
             let launch_args = std::env::args().collect::<Vec<_>>();
@@ -2813,6 +2819,9 @@ async fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            autostart::enable_autostart,
+            autostart::disable_autostart,
+            autostart::is_autostart_enabled,
             commands::get_today_stats,
             commands::get_overview_stats,
             commands::get_daily_stats,

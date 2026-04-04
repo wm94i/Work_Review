@@ -54,6 +54,7 @@ tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-updater = "2.10.0"
 tauri-plugin-process = "2.3.1"
+auto-launch = "0.6.0"
 
 # 平台特定依赖 - Windows
 [target.'cfg(windows)'.dependencies]
@@ -69,7 +70,7 @@ objc = "0.2"
 core-graphics = "0.23"
 core-foundation = "0.9"
 
-[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 tauri-plugin-autostart = "2.5.1"
 
 # 编译优化
