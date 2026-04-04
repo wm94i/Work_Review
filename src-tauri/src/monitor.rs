@@ -1313,15 +1313,13 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::{
         best_browser_url_candidate_from_output, browser_url_script_macos,
-        browser_url_system_events_process_name_macos,
-        browser_url_ui_script_macos,
+        browser_url_system_events_process_name_macos, browser_url_ui_script_macos,
     };
     use super::{
         categorize_app, categorize_app_with_rules, decode_mozlz4_bytes,
         extract_active_tab_url_from_session_store_value, extract_url_from_title,
         firefox_family_profile_dir_from_ini, is_browser_app, is_probable_domain,
-        normalize_macos_frontmost_app_name, normalize_possible_url,
-        remember_browser_url_log,
+        normalize_macos_frontmost_app_name, normalize_possible_url, remember_browser_url_log,
     };
     use std::collections::HashMap;
     use std::path::Path;
@@ -1514,8 +1512,7 @@ mod tests {
         ];
 
         for (app_lower, app_name) in cases {
-            let (script, _) =
-                browser_url_script_macos(app_lower).expect("应返回浏览器脚本");
+            let (script, _) = browser_url_script_macos(app_lower).expect("应返回浏览器脚本");
             assert!(
                 script.contains(&format!(r#"if application "{app_name}" is running then"#)),
                 "{app_name} 脚本缺少运行态守卫"
@@ -2130,9 +2127,7 @@ fn humanize_bundle_identifier_token(token: &str) -> Option<String> {
 }
 
 fn display_name_from_bundle_identifier(bundle_identifier: &str) -> Option<String> {
-    let generic_segments = [
-        "com", "cn", "net", "org", "io", "app", "desktop", "helper",
-    ];
+    let generic_segments = ["com", "cn", "net", "org", "io", "app", "desktop", "helper"];
 
     let segments = bundle_identifier
         .split('.')

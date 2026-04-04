@@ -687,8 +687,7 @@ struct RecordingLoopDecision {
 
 const ACTIVITY_INPUT_IDLE_SUSPECT_MINUTES: u64 = 3;
 const ACTIVITY_INPUT_IDLE_HARD_STOP_MINUTES: u64 = 20;
-const ACTIVITY_INPUT_IDLE_HARD_STOP_SECS: u64 =
-    ACTIVITY_INPUT_IDLE_HARD_STOP_MINUTES * 60;
+const ACTIVITY_INPUT_IDLE_HARD_STOP_SECS: u64 = ACTIVITY_INPUT_IDLE_HARD_STOP_MINUTES * 60;
 
 fn should_confirm_idle(
     input_idle: bool,
@@ -1297,7 +1296,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
         let active_window_now = std::time::Instant::now();
         let cached_active_window = {
             let state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-            reusable_cached_active_window(state_guard.cached_active_window.as_ref(), active_window_now)
+            reusable_cached_active_window(
+                state_guard.cached_active_window.as_ref(),
+                active_window_now,
+            )
         };
         let mut active_window = if let Some(window) = cached_active_window {
             window
@@ -1444,8 +1446,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
 
         // ===== 空闲检测第一阶段：键鼠活动检查 =====
         let input_idle_seconds = idle_detector.get_idle_seconds();
-        let input_idle =
-            input_idle_seconds >= ACTIVITY_INPUT_IDLE_SUSPECT_MINUTES * 60;
+        let input_idle = input_idle_seconds >= ACTIVITY_INPUT_IDLE_SUSPECT_MINUTES * 60;
 
         let was_input_idle = is_currently_idle;
         // 每 30 秒打印一次空闲状态日志（避免刷屏）
@@ -2925,8 +2926,8 @@ mod tests {
         avatar_monitor_poll_interval_ms_for_platform, avatar_transition_decision,
         browser_change_capture_min_interval_ms, effective_dock_visibility,
         launch_args_contain_autostart, main_window_close_behavior, monitoring_poll_interval_ms,
-        monitoring_poll_interval_ms_for_platform, recording_loop_decision,
-        previous_app_backfill_duration, resolve_activity_classification, reusable_cached_active_window,
+        monitoring_poll_interval_ms_for_platform, previous_app_backfill_duration,
+        recording_loop_decision, resolve_activity_classification, reusable_cached_active_window,
         screen_lock_check_interval_ms_for_platform, should_confirm_idle,
         should_hide_main_window_on_setup, should_prevent_exit,
         should_probe_browser_url_before_change_detection, tray_recording_toggle_action,
@@ -2985,7 +2986,10 @@ mod tests {
     fn 已进入输入空闲后切换应用不应回补上一应用时长() {
         assert_eq!(previous_app_backfill_duration(true, 3600, true, false), 0);
         assert_eq!(previous_app_backfill_duration(true, 3600, false, true), 0);
-        assert_eq!(previous_app_backfill_duration(true, 3600, false, false), 3600);
+        assert_eq!(
+            previous_app_backfill_duration(true, 3600, false, false),
+            3600
+        );
         assert_eq!(previous_app_backfill_duration(false, 3600, false, false), 0);
     }
 

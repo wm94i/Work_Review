@@ -1944,7 +1944,11 @@ fn apply_ignored_apps_to_stats(mut stats: DailyStats, ignored_apps: &[String]) -
     stats
         .browser_usage
         .retain(|browser| !matches_ignored_app(&browser.browser_name, ignored_apps));
-    stats.browser_duration = stats.browser_usage.iter().map(|browser| browser.duration).sum();
+    stats.browser_duration = stats
+        .browser_usage
+        .iter()
+        .map(|browser| browser.duration)
+        .sum();
 
     if stats.work_time_duration > stats.total_duration {
         stats.work_time_duration = stats.total_duration;
@@ -1993,7 +1997,11 @@ fn update_preferred_path(target: &mut Option<String>, candidate: Option<String>)
     }
 }
 
-fn record_semantic_vote(votes: &mut HashMap<String, i64>, semantic_category: Option<String>, duration: i64) {
+fn record_semantic_vote(
+    votes: &mut HashMap<String, i64>,
+    semantic_category: Option<String>,
+    duration: i64,
+) {
     if duration <= 0 {
         return;
     }
@@ -2009,11 +2017,13 @@ fn record_semantic_vote(votes: &mut HashMap<String, i64>, semantic_category: Opt
 fn resolve_primary_semantic(votes: HashMap<String, i64>) -> Option<String> {
     votes
         .into_iter()
-        .max_by(|(left_label, left_duration), (right_label, right_duration)| {
-            left_duration
-                .cmp(right_duration)
-                .then_with(|| right_label.cmp(left_label))
-        })
+        .max_by(
+            |(left_label, left_duration), (right_label, right_duration)| {
+                left_duration
+                    .cmp(right_duration)
+                    .then_with(|| right_label.cmp(left_label))
+            },
+        )
         .map(|(label, _)| label)
 }
 
@@ -2039,10 +2049,7 @@ fn sort_domain_usage(items: &mut [DomainUsage]) {
     }
 }
 
-fn build_domain_usage_from_aggregate(
-    domain: String,
-    aggregate: DomainAggregate,
-) -> DomainUsage {
+fn build_domain_usage_from_aggregate(domain: String, aggregate: DomainAggregate) -> DomainUsage {
     let mut urls = aggregate
         .urls
         .into_iter()
@@ -2058,7 +2065,10 @@ fn build_domain_usage_from_aggregate(
     }
 }
 
-fn merge_domain_usage_maps(target: &mut HashMap<String, DomainAggregate>, domains: Vec<DomainUsage>) {
+fn merge_domain_usage_maps(
+    target: &mut HashMap<String, DomainAggregate>,
+    domains: Vec<DomainUsage>,
+) {
     for domain in domains {
         let domain_key = domain.domain.clone();
         let entry = target.entry(domain_key).or_default();
@@ -2097,12 +2107,14 @@ fn sum_daily_stats(days: Vec<DailyStats>) -> DailyStats {
         work_time_duration += day.work_time_duration;
 
         for app in day.app_usage {
-            let entry = app_usage_map.entry(app.app_name.clone()).or_insert(AppUsage {
-                app_name: app.app_name.clone(),
-                duration: 0,
-                count: 0,
-                executable_path: None,
-            });
+            let entry = app_usage_map
+                .entry(app.app_name.clone())
+                .or_insert(AppUsage {
+                    app_name: app.app_name.clone(),
+                    duration: 0,
+                    count: 0,
+                    executable_path: None,
+                });
             entry.duration += app.duration;
             entry.count += app.count;
             update_preferred_path(&mut entry.executable_path, app.executable_path);
@@ -2249,7 +2261,11 @@ fn resolve_overview_date_span(
         .transpose()?
         .unwrap_or(start);
 
-    Ok(if start <= end { (start, end) } else { (end, start) })
+    Ok(if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    })
 }
 
 /// 获取今日统计
@@ -2294,9 +2310,9 @@ pub async fn get_overview_stats(
                 while current <= end {
                     let current_date = current.format("%Y-%m-%d").to_string();
                     daily_stats.push(load_daily_stats_for_overview(&state, &current_date)?);
-                    current = current.succ_opt().ok_or_else(|| {
-                        AppError::Config("计算概览日期范围失败".to_string())
-                    })?;
+                    current = current
+                        .succ_opt()
+                        .ok_or_else(|| AppError::Config("计算概览日期范围失败".to_string()))?;
                 }
                 sum_daily_stats(daily_stats)
             }
@@ -3305,27 +3321,36 @@ async fn test_ollama(
         .await
         .map_err(|e| format!("解析响应失败: {e}"))?;
 
-    // 2. 检查模型是否存在于列表中
+    // 2. 基于模型列表和能力信息判断是否为可用的文本生成模型
     let models = data["models"].as_array().ok_or("无法获取模型列表")?;
-
-    let model_exists = models.iter().any(|m| {
-        m["name"]
+    let installed_model_exists = models.iter().any(|model| {
+        model["name"]
             .as_str()
-            .map(|n| n.starts_with(&config.model) || n.contains(&config.model))
-            .unwrap_or(false)
+            .is_some_and(|name| ollama_model_names_match(&config.model, name))
     });
+    let available_models = resolve_ollama_text_model_names(client, &config.endpoint, &data)
+        .await
+        .map_err(|e| format!("过滤 Ollama 模型列表失败: {e}"))?;
 
-    if !model_exists {
-        let available: Vec<String> = models
-            .iter()
-            .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
-            .take(5)
-            .collect();
-        return Err(format!(
-            "模型 {} 未安装。可用模型: {}",
-            config.model,
-            available.join(", ")
-        ));
+    let text_model_exists = available_models
+        .iter()
+        .any(|name| ollama_model_names_match(&config.model, name));
+
+    if !text_model_exists {
+        if installed_model_exists {
+            return Err(format!(
+                "模型 {} 已安装，但不是可用于对话/生成的文本模型",
+                config.model
+            ));
+        }
+
+        let available: Vec<String> = available_models.into_iter().take(5).collect();
+        let available_hint = if available.is_empty() {
+            "当前未发现可用文本模型".to_string()
+        } else {
+            format!("可用模型: {}", available.join(", "))
+        };
+        return Err(format!("模型 {} 未安装。{}", config.model, available_hint));
     }
 
     // 3. 实际调用模型生成测试（关键验证步骤）
@@ -3456,6 +3481,75 @@ async fn test_claude(
     }
 }
 
+fn normalize_ollama_model_name(name: &str) -> Option<(String, String)> {
+    let normalized = name.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+
+    match normalized.rsplit_once(':') {
+        Some((base, tag)) if !base.is_empty() && !tag.is_empty() => {
+            Some((base.to_string(), tag.to_string()))
+        }
+        _ => Some((normalized, "latest".to_string())),
+    }
+}
+
+fn ollama_model_names_match(configured: &str, installed: &str) -> bool {
+    normalize_ollama_model_name(configured)
+        .zip(normalize_ollama_model_name(installed))
+        .is_some_and(
+            |((configured_base, configured_tag), (installed_base, installed_tag))| {
+                configured_base == installed_base && configured_tag == installed_tag
+            },
+        )
+}
+
+fn is_ollama_embedding_model(model: &serde_json::Value) -> bool {
+    let has_embedding_marker = |value: &str| {
+        let normalized = value.trim().to_ascii_lowercase();
+        normalized.contains("embed")
+            || normalized.contains("embedding")
+            || normalized.contains("text-embedding")
+            || normalized == "bert"
+    };
+
+    if model["name"].as_str().is_some_and(has_embedding_marker) {
+        return true;
+    }
+
+    let details = &model["details"];
+    if details["family"].as_str().is_some_and(has_embedding_marker) {
+        return true;
+    }
+
+    details["families"].as_array().is_some_and(|families| {
+        families
+            .iter()
+            .filter_map(|family| family.as_str())
+            .any(has_embedding_marker)
+    })
+}
+
+fn ollama_show_response_supports_completion(data: &serde_json::Value) -> Option<bool> {
+    data["capabilities"].as_array().map(|capabilities| {
+        capabilities
+            .iter()
+            .filter_map(|capability| capability.as_str())
+            .any(|capability| capability.eq_ignore_ascii_case("completion"))
+    })
+}
+
+fn ollama_model_should_be_listed(
+    model: &serde_json::Value,
+    show_response: Option<&serde_json::Value>,
+) -> bool {
+    match show_response.and_then(ollama_show_response_supports_completion) {
+        Some(supports_completion) => supports_completion,
+        None => !is_ollama_embedding_model(model),
+    }
+}
+
 fn parse_ollama_model_names(data: &serde_json::Value) -> Result<Vec<String>, AppError> {
     let models = data["models"]
         .as_array()
@@ -3463,6 +3557,7 @@ fn parse_ollama_model_names(data: &serde_json::Value) -> Result<Vec<String>, App
 
     let mut names = models
         .iter()
+        .filter(|model| !is_ollama_embedding_model(model))
         .filter_map(|model| model["name"].as_str().map(|name| name.trim().to_string()))
         .filter(|name| !name.is_empty())
         .collect::<Vec<_>>();
@@ -3471,6 +3566,94 @@ fn parse_ollama_model_names(data: &serde_json::Value) -> Result<Vec<String>, App
     names.dedup();
 
     Ok(names)
+}
+
+async fn fetch_ollama_show_response(
+    client: &reqwest::Client,
+    endpoint: &str,
+    model_name: &str,
+) -> Result<serde_json::Value, AppError> {
+    let response = client
+        .post(format!("{endpoint}/api/show"))
+        .json(&serde_json::json!({
+            "model": model_name,
+            "verbose": false
+        }))
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(AppError::Analysis(format!(
+            "Ollama 模型详情返回错误: {}",
+            response.status()
+        )));
+    }
+
+    Ok(response.json().await?)
+}
+
+async fn resolve_ollama_text_model_names(
+    client: &reqwest::Client,
+    endpoint: &str,
+    data: &serde_json::Value,
+) -> Result<Vec<String>, AppError> {
+    let models = data["models"]
+        .as_array()
+        .ok_or_else(|| AppError::Unknown("无法获取 Ollama 模型列表".to_string()))?;
+
+    let mut join_set = tokio::task::JoinSet::new();
+    for model in models {
+        let Some(model_name) = model["name"]
+            .as_str()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+
+        let client = client.clone();
+        let endpoint = endpoint.to_string();
+        let model_name = model_name.to_string();
+        let model_snapshot = model.clone();
+        join_set.spawn(async move {
+            let show_response = fetch_ollama_show_response(&client, &endpoint, &model_name).await;
+            (model_snapshot, model_name, show_response)
+        });
+    }
+
+    let mut filtered_names = Vec::new();
+    while let Some(result) = join_set.join_next().await {
+        let (model, model_name, show_response) = result
+            .map_err(|error| AppError::Unknown(format!("查询 Ollama 模型详情失败: {error}")))?;
+
+        match show_response {
+            Ok(show_response) => {
+                if ollama_model_should_be_listed(&model, Some(&show_response)) {
+                    filtered_names.push(model_name);
+                }
+            }
+            Err(error) => {
+                if ollama_model_should_be_listed(&model, None) {
+                    log::debug!(
+                        "获取 Ollama 模型详情失败，回退名称规则后保留模型: model={}, error={}",
+                        model_name,
+                        error
+                    );
+                    filtered_names.push(model_name);
+                } else {
+                    log::debug!(
+                        "获取 Ollama 模型详情失败，回退名称规则后排除模型: model={}, error={}",
+                        model_name,
+                        error
+                    );
+                }
+            }
+        }
+    }
+
+    filtered_names.sort();
+    filtered_names.dedup();
+    Ok(filtered_names)
 }
 
 #[tauri::command]
@@ -3497,7 +3680,7 @@ pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError
     }
 
     let data: serde_json::Value = response.json().await?;
-    parse_ollama_model_names(&data)
+    resolve_ollama_text_model_names(&client, &endpoint, &data).await
 }
 
 /// 获取支持的 AI 提供商列表
@@ -5996,7 +6179,8 @@ mod tests {
         detect_assistant_question_kind, detect_assistant_question_kind_with_mode,
         export_daily_report_markdown, format_browser_url_for_display, macos_score_app_bundle_name,
         merge_windows_icon_lookup_candidates, normalize_macos_app_lookup_name,
-        normalize_saved_report_ai_mode, openai_connection_test_max_tokens,
+        normalize_saved_report_ai_mode, ollama_model_names_match, ollama_model_should_be_listed,
+        ollama_show_response_supports_completion, openai_connection_test_max_tokens,
         overview_week_bounds_for_date, parse_ollama_model_names, resolve_saved_report_metadata,
         sum_daily_stats, AssistantChatMessage, AssistantQuestionKind, AssistantReasoningMode,
         UPDATER_JSON_ENDPOINTS, UPDATE_CONNECT_TIMEOUT_SECS, UPDATE_REQUEST_TIMEOUT_SECS,
@@ -6487,6 +6671,90 @@ mod tests {
             names,
             vec!["llama3.1:8b".to_string(), "qwen2.5:latest".to_string()]
         );
+    }
+
+    #[test]
+    fn 解析_ollama_模型列表时应过滤嵌入模型() {
+        let payload = serde_json::json!({
+            "models": [
+                { "name": "qwen3.5:4b" },
+                { "name": "nomic-embed-text:latest" },
+                { "name": "llama3.2:latest" }
+            ]
+        });
+
+        let names = parse_ollama_model_names(&payload).expect("应能解析模型列表");
+
+        assert_eq!(
+            names,
+            vec!["llama3.2:latest".to_string(), "qwen3.5:4b".to_string()]
+        );
+    }
+
+    #[test]
+    fn ollama_show_响应应根据能力判断是否支持文本生成() {
+        let embedding_only = serde_json::json!({
+            "capabilities": ["embedding"]
+        });
+        let completion_and_vision = serde_json::json!({
+            "capabilities": ["completion", "vision"]
+        });
+        let missing_capabilities = serde_json::json!({});
+
+        assert_eq!(
+            ollama_show_response_supports_completion(&embedding_only),
+            Some(false)
+        );
+        assert_eq!(
+            ollama_show_response_supports_completion(&completion_and_vision),
+            Some(true)
+        );
+        assert_eq!(
+            ollama_show_response_supports_completion(&missing_capabilities),
+            None
+        );
+    }
+
+    #[test]
+    fn ollama_模型名匹配应兼容_latest_缩写且避免宽松子串误判() {
+        assert!(ollama_model_names_match("qwen2.5", "qwen2.5:latest"));
+        assert!(ollama_model_names_match(
+            "hf.co/Qwen/Qwen3-8B-GGUF:Q5_K_M",
+            "hf.co/Qwen/Qwen3-8B-GGUF:Q5_K_M"
+        ));
+        assert!(!ollama_model_names_match("qwen2.5", "qwen2.5-coder:latest"));
+        assert!(!ollama_model_names_match("qwen2.5", "deepseek-r1:1.5b"));
+    }
+
+    #[test]
+    fn ollama_模型展示应优先相信能力信息再回退名称规则() {
+        let suspicious_but_completion = serde_json::json!({
+            "name": "embed-chat-preview:latest"
+        });
+        let completion_show = serde_json::json!({
+            "capabilities": ["completion"]
+        });
+
+        let embedding_only = serde_json::json!({
+            "name": "all-minilm:latest"
+        });
+        let embedding_show = serde_json::json!({
+            "capabilities": ["embedding"]
+        });
+
+        let heuristic_only = serde_json::json!({
+            "name": "nomic-embed-text:latest"
+        });
+
+        assert!(ollama_model_should_be_listed(
+            &suspicious_but_completion,
+            Some(&completion_show)
+        ));
+        assert!(!ollama_model_should_be_listed(
+            &embedding_only,
+            Some(&embedding_show)
+        ));
+        assert!(!ollama_model_should_be_listed(&heuristic_only, None));
     }
     #[test]
     fn 助手问题分类应识别阶段总结与过程复盘和证据追问() {

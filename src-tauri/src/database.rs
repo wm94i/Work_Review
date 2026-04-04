@@ -1088,7 +1088,8 @@ impl Database {
         let mut hourly_activity_distribution: Vec<HourlyActivityBucket> = (0..24)
             .map(|hour| HourlyActivityBucket { hour, duration: 0 })
             .collect();
-        let mut hourly_activity_ranges: Vec<Vec<(i64, i64)>> = (0..24).map(|_| Vec::new()).collect();
+        let mut hourly_activity_ranges: Vec<Vec<(i64, i64)>> =
+            (0..24).map(|_| Vec::new()).collect();
         let mut domain_semantic_map: std::collections::HashMap<
             String,
             std::collections::HashMap<String, i64>,
