@@ -1052,7 +1052,7 @@ impl ScreenshotService {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 fn capture_target_point(
     active_window: Option<&crate::monitor::ActiveWindow>,
 ) -> Option<(i32, i32)> {

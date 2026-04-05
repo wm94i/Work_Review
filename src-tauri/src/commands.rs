@@ -10,8 +10,7 @@ use crate::database::{
 use crate::error::AppError;
 #[cfg(target_os = "linux")]
 use crate::linux_session::{
-    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopEnvironment,
-    LinuxDesktopSession,
+    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopSession,
 };
 use crate::privacy::PrivacyFilter;
 use crate::screenshot::ScreenshotService;
