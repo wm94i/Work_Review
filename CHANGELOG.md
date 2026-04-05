@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.34] - 2026-04-05
+
+### 新增
+- 扩展 Linux Wayland 活动窗口 provider：补齐 `GNOME / KDE Plasma / Sway / Hyprland` 的活动窗口来源，并为未知 Wayland 会话增加自动 provider 探测链。
+- 新增 Linux 桌面环境识别：当前会区分 `X11 / Wayland` 以及 `GNOME / KDE Plasma / Sway / Hyprland / Unknown`，供活动窗口采集、截图裁剪和关于页状态展示复用。
+- 新增 Linux 兼容性状态可视化：关于页现会显示当前会话类型、桌面环境、命中的活动窗口 provider 以及 Linux Browser URL 能力等级，方便直接确认当前桌面的支持状态。
+
+### 修复
+- 修复 Linux 下 Wayland 活动窗口长期无法回流主记录链路的问题：当前主流 Wayland 会话可恢复 `app_name / window_title / window_bounds`，并继续沿用现有录制、分类、时间线与统计链路。
+- 修复 Linux 截图链路长期只保留整桌面截图的问题：`ActiveWindow` 模式下现会实际消费 `window_bounds`，优先按活动窗口所在显示器裁剪，拿不到显示器拓扑时回退为按窗口区域裁剪。
+- 修复 Linux 下浏览器 URL 长期固定缺失的问题：Firefox / Zen / LibreWolf / Waterfox 现优先走 sessionstore 恢复，Chromium 系补齐标题提取与最近记录兜底，不再一律回退为空值。
+- 修复 Linux 构建输出里 `AUTOSTART_LAUNCH_ARG` 在非 Windows 目标下的未使用告警：当前已限定为 Windows 条件编译常量，减少无效警告噪音。
+
+### 优化
+- 优化 Linux browser URL 恢复策略：Linux 下现改为跨桌面统一入口，Firefox family 优先走 sessionstore，其他浏览器再回退到标题提取，减少未来继续补 provider 时重复维护 URL 链路。
+- 优化 Linux Wayland provider 策略：由桌面环境单一路径改为按环境优先级排序的 provider 探测链，未知 Wayland 会话也会自动尝试已接入 provider，而不再直接报不支持。
+- 优化关于页 Linux 兼容性提示：当前会显示命中的活动窗口 provider 与 Linux Browser URL 能力等级，便于排查不同桌面环境下的支持状态。
+- 优化 README 中英繁三套 Linux 说明：平台标识、依赖清单、Wayland provider 范围与 Linux Browser URL 能力边界现已与当前实现对齐，减少“文档仍写 X11、代码已支持 Wayland”的错位。
+
 ## [1.0.33] - 2026-04-03
 
 ### 修复
