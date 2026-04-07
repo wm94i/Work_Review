@@ -1341,6 +1341,8 @@ fn extract_url_from_title(window_title: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    use super::firefox_family_session_store_base_dir;
     #[cfg(target_os = "macos")]
     use super::{
         best_browser_url_candidate_from_output, browser_url_script_macos,
@@ -1349,15 +1351,12 @@ mod tests {
     use super::{
         categorize_app, categorize_app_with_rules, decode_mozlz4_bytes,
         extract_active_tab_url_from_session_store_value, extract_url_from_title,
-        firefox_family_profile_dir_from_ini,
-        find_focused_sway_node, is_browser_app, is_probable_domain,
-        normalize_macos_frontmost_app_name, normalize_possible_url,
+        find_focused_sway_node, firefox_family_profile_dir_from_ini, is_browser_app,
+        is_probable_domain, normalize_macos_frontmost_app_name, normalize_possible_url,
         parse_gnome_focused_window_dbus_output, parse_hyprland_window_bounds,
         parse_kdotool_geometry_output, parse_xdotool_geometry_shell_output,
         remember_browser_url_log, resolve_browser_url_for_window_linux, WindowBounds,
     };
-    #[cfg(target_os = "linux")]
-    use super::firefox_family_session_store_base_dir;
     use std::collections::HashMap;
     use std::path::Path;
     #[cfg(target_os = "macos")]
@@ -2971,33 +2970,48 @@ pub fn current_linux_active_window_provider(
         LinuxDesktopSession::X11 => &[("xdotool", is_x11_active_window_provider_available)],
         LinuxDesktopSession::Wayland => match desktop_environment {
             LinuxDesktopEnvironment::Gnome => &[
-                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                (
+                    "focused-window-dbus",
+                    is_gnome_wayland_active_window_provider_available,
+                ),
                 ("swaymsg", is_sway_active_window_provider_available),
                 ("hyprctl", is_hyprland_active_window_provider_available),
                 ("kdotool", is_kde_wayland_active_window_provider_available),
             ],
             LinuxDesktopEnvironment::Kde => &[
                 ("kdotool", is_kde_wayland_active_window_provider_available),
-                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                (
+                    "focused-window-dbus",
+                    is_gnome_wayland_active_window_provider_available,
+                ),
                 ("swaymsg", is_sway_active_window_provider_available),
                 ("hyprctl", is_hyprland_active_window_provider_available),
             ],
             LinuxDesktopEnvironment::Sway => &[
                 ("swaymsg", is_sway_active_window_provider_available),
                 ("hyprctl", is_hyprland_active_window_provider_available),
-                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                (
+                    "focused-window-dbus",
+                    is_gnome_wayland_active_window_provider_available,
+                ),
                 ("kdotool", is_kde_wayland_active_window_provider_available),
             ],
             LinuxDesktopEnvironment::Hyprland => &[
                 ("hyprctl", is_hyprland_active_window_provider_available),
                 ("swaymsg", is_sway_active_window_provider_available),
-                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                (
+                    "focused-window-dbus",
+                    is_gnome_wayland_active_window_provider_available,
+                ),
                 ("kdotool", is_kde_wayland_active_window_provider_available),
             ],
             LinuxDesktopEnvironment::Unknown => &[
                 ("hyprctl", is_hyprland_active_window_provider_available),
                 ("swaymsg", is_sway_active_window_provider_available),
-                ("focused-window-dbus", is_gnome_wayland_active_window_provider_available),
+                (
+                    "focused-window-dbus",
+                    is_gnome_wayland_active_window_provider_available,
+                ),
                 ("kdotool", is_kde_wayland_active_window_provider_available),
             ],
         },
@@ -3093,9 +3107,9 @@ fn get_active_window_linux_x11() -> Result<ActiveWindow> {
         "xdotool getwindowgeometry --shell",
     )
     .ok();
-    let window_bounds = geometry_output
-        .as_ref()
-        .and_then(|output| parse_xdotool_geometry_shell_output(&String::from_utf8_lossy(&output.stdout)));
+    let window_bounds = geometry_output.as_ref().and_then(|output| {
+        parse_xdotool_geometry_shell_output(&String::from_utf8_lossy(&output.stdout))
+    });
 
     let display_name = normalize_display_app_name(&app_name);
 
@@ -3133,7 +3147,9 @@ fn get_active_window_linux_wayland_kde() -> Result<ActiveWindow> {
         .trim()
         .to_string();
     if window_id.is_empty() {
-        return Err(AppError::Unknown("KDE provider 未返回活动窗口 ID".to_string()));
+        return Err(AppError::Unknown(
+            "KDE provider 未返回活动窗口 ID".to_string(),
+        ));
     }
 
     let title_output = run_monitor_command_with_timeout(
@@ -3158,12 +3174,15 @@ fn get_active_window_linux_wayland_kde() -> Result<ActiveWindow> {
     build_linux_wayland_active_window(
         String::from_utf8_lossy(&title_output.stdout).trim(),
         String::from_utf8_lossy(&class_output.stdout).trim(),
-        pid_output
-            .as_ref()
-            .and_then(|output| String::from_utf8_lossy(&output.stdout).trim().parse::<u32>().ok()),
-        geometry_output
-            .as_ref()
-            .and_then(|output| parse_kdotool_geometry_output(&String::from_utf8_lossy(&output.stdout))),
+        pid_output.as_ref().and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .trim()
+                .parse::<u32>()
+                .ok()
+        }),
+        geometry_output.as_ref().and_then(|output| {
+            parse_kdotool_geometry_output(&String::from_utf8_lossy(&output.stdout))
+        }),
     )
 }
 
@@ -3420,7 +3439,11 @@ fn parse_sway_rect_to_window_bounds(value: &Value) -> Option<WindowBounds> {
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn find_focused_sway_node(value: &Value) -> Option<&Value> {
-    if value.get("focused").and_then(|v| v.as_bool()).unwrap_or(false) {
+    if value
+        .get("focused")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
         if value.get("pid").is_some() || value.get("app_id").is_some() {
             return Some(value);
         }

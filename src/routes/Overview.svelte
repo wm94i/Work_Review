@@ -597,7 +597,8 @@
     </div>
   </div>
 
-  <div class="mb-4 flex flex-wrap items-center gap-2">
+  <div class="overview-editorial-shell">
+  <div class="overview-command-deck mb-4 flex flex-wrap items-center gap-2">
     <button
       type="button"
       class="page-control-btn {overviewMode === 'today' ? 'page-control-btn-active' : ''}"
@@ -682,7 +683,7 @@
   </div>
 
   <!-- 统计卡片：始终渲染，内部切换骨架/真实数据 -->
-  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+  <div class="overview-summary-grid grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
     {#if loading || !stats}
       {#each [1,2,3,4] as _}
         <div class="min-h-[116px] p-5 rounded-2xl bg-white dark:bg-slate-800/80 border border-slate-100 dark:border-slate-700/60 animate-pulse">
@@ -714,10 +715,10 @@
   {/if}
 
   <!-- 网站访问：始终渲染，加载中显示骨架，无数据显示占位文字 -->
-  <div class="page-card mb-4">
+  <div class="page-card overview-panel overview-panel-featured mb-4">
     <h3 class="page-section-title">{t('overview.websiteVisits')}</h3>
     {#if loading || !stats}
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
+      <div class="overview-browser-gallery grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 animate-pulse">
         {#each [1,2] as _}
           <div class="p-3.5 rounded-xl border border-slate-100 dark:border-slate-700">
             <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded w-3/4 mb-2.5"></div>
@@ -727,10 +728,10 @@
         {/each}
       </div>
     {:else if stats.browser_usage && stats.browser_usage.length > 0}
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div class="overview-browser-gallery grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {#each stats.browser_usage as browser}
           <button
-            class="group text-left p-3.5 rounded-xl border border-slate-100 dark:border-slate-700
+            class="group overview-browser-card text-left p-3.5 rounded-xl border border-slate-100 dark:border-slate-700
                    bg-white dark:bg-slate-800/60
                    hover:border-slate-200 dark:hover:border-slate-600 hover:shadow-sm
                    transition-all duration-200"
@@ -768,8 +769,9 @@
     {/if}
   </div>
 
+  <div class="overview-section-grid">
   <!-- 应用使用：始终渲染 -->
-  <div class="page-card mb-4">
+  <div class="page-card overview-panel overview-panel-subtle mb-4">
     <div class="mb-3 flex items-center justify-between gap-3">
       <h3 class="page-section-title !mb-0">{t('overview.appUsage')}</h3>
       <button
@@ -813,7 +815,7 @@
     {/if}
   </div>
 
-  <div class="page-card mb-4">
+  <div class="page-card overview-panel overview-panel-subtle mb-4">
     <div class="mb-3 flex items-center justify-between gap-3">
       <h3 class="page-section-title !mb-0">{t('overview.hourlyActivity')}</h3>
       <button
@@ -870,6 +872,8 @@
       />
     {/if}
   </div>
+  </div>
+</div>
 </div>
 
 <!-- 浏览器详情弹窗 -->
@@ -877,13 +881,13 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
-  class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+  class="fixed inset-0 z-[140] bg-slate-950/52 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
   role="button"
   tabindex="0"
   on:click|self={() => selectedBrowser = null}
   on:keydown={(e) => e.key === 'Escape' && (selectedBrowser = null)}
 >
-  <div class="card p-0 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true">
+  <div class="card overview-browser-dialog p-0 max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true">
     <!-- 弹窗头部 -->
       <div class="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-slate-50 to-white dark:from-slate-800 dark:to-slate-900">
         <div class="flex items-center gap-3">

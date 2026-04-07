@@ -27,6 +27,81 @@
   let modelProfiles = [];
   let selectedModelId = BASIC_ASSISTANT_MODEL_ID;
 
+  const providerDisplayNames = {
+    ollama: {
+      'zh-CN': 'Ollama (本地)',
+      en: 'Ollama (Local)',
+      'zh-TW': 'Ollama（本機）',
+    },
+    openai: {
+      'zh-CN': 'OpenAI / 兼容API',
+      en: 'OpenAI / Compatible API',
+      'zh-TW': 'OpenAI / 相容 API',
+    },
+    siliconflow: {
+      'zh-CN': '硅基流动 SiliconFlow',
+      en: 'SiliconFlow',
+      'zh-TW': '矽基流動 SiliconFlow',
+    },
+    deepseek: {
+      'zh-CN': 'DeepSeek',
+      en: 'DeepSeek',
+      'zh-TW': 'DeepSeek',
+    },
+    qwen: {
+      'zh-CN': '通义千问 Qwen',
+      en: 'Qwen',
+      'zh-TW': '通義千問 Qwen',
+    },
+    zhipu: {
+      'zh-CN': '智谱 ChatGLM',
+      en: 'Zhipu ChatGLM',
+      'zh-TW': '智譜 ChatGLM',
+    },
+    moonshot: {
+      'zh-CN': '月之暗面 Kimi',
+      en: 'Moonshot Kimi',
+      'zh-TW': '月之暗面 Kimi',
+    },
+    doubao: {
+      'zh-CN': '火山引擎 豆包',
+      en: 'Doubao',
+      'zh-TW': '火山引擎 豆包',
+    },
+    minimax: {
+      'zh-CN': '稀宇科技 MiniMax',
+      en: 'MiniMax',
+      'zh-TW': '稀宇科技 MiniMax',
+    },
+    gemini: {
+      'zh-CN': 'Google Gemini',
+      en: 'Google Gemini',
+      'zh-TW': 'Google Gemini',
+    },
+    claude: {
+      'zh-CN': 'Anthropic Claude',
+      en: 'Anthropic Claude',
+      'zh-TW': 'Anthropic Claude',
+    },
+  };
+
+  function localizedProviderName(providerId) {
+    return providerDisplayNames[providerId]?.[currentLocale] || providerId || '';
+  }
+
+  function displayModelProfileName(profile) {
+    if (!profile) return '';
+    const localizedProvider = localizedProviderName(profile.model_config?.provider);
+    const modelName = profile.model_config?.model?.trim();
+    if (localizedProvider && modelName) {
+      return `${localizedProvider} · ${modelName}`;
+    }
+    if (modelName) {
+      return modelName;
+    }
+    return profile.name || '';
+  }
+
   onMount(async () => {
     unsubscribeAssistant = assistantStore.subscribe((state) => {
       const nextMessages = state.messages || [];
@@ -293,17 +368,18 @@
   $: input, resizeComposer();
 </script>
 
-<div class="page-shell h-full" data-locale={currentLocale}>
-  <div class="flex min-h-[calc(100vh-7rem)] flex-col">
+<div class="page-shell ask-workbench-shell h-full" data-locale={currentLocale}>
+  <div class="ask-workbench-frame flex min-h-[calc(100vh-7rem)] flex-col">
     <div bind:this={chatBody} class="flex-1 overflow-y-auto px-4 pb-40 pt-10" on:scroll={syncStickToBottom}>
       {#if !hasConversation}
-        <div class="mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center text-center">
+        <div class="ask-welcome-panel mx-auto flex min-h-full max-w-4xl flex-col items-center justify-center text-center">
+          <span class="ask-kicker">{t('ask.title')}</span>
           <h1 class="mb-2 text-2xl font-semibold tracking-tight text-slate-800 dark:text-slate-100">{t('ask.title')}</h1>
           <p class="mb-10 text-sm text-slate-500 dark:text-slate-400">{t('ask.subtitle')}</p>
-          <div class="grid w-full max-w-3xl gap-3 sm:grid-cols-2">
+          <div class="ask-starter-grid grid w-full max-w-3xl gap-3 sm:grid-cols-2">
             {#each starterPrompts as prompt}
               <button
-                class="rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.88))] px-5 py-4 text-left text-sm font-medium leading-6 text-slate-700 ring-1 ring-inset ring-slate-200/80 shadow-[0_8px_24px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:text-slate-900 hover:ring-slate-300 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.78),rgba(15,23,42,0.62))] dark:text-slate-200 dark:ring-slate-700/80 dark:shadow-none dark:hover:text-white dark:hover:ring-slate-600"
+                class="ask-starter-card rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.88))] px-5 py-4 text-left text-sm font-medium leading-6 text-slate-700 ring-1 ring-inset ring-slate-200/80 shadow-[0_8px_24px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:text-slate-900 hover:ring-slate-300 dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.78),rgba(15,23,42,0.62))] dark:text-slate-200 dark:ring-slate-700/80 dark:shadow-none dark:hover:text-white dark:hover:ring-slate-600"
                 on:click={() => submitQuestion(prompt)}
                 disabled={sending}
               >
@@ -313,13 +389,13 @@
           </div>
         </div>
       {:else}
-        <div class="mx-auto flex min-h-full max-w-4xl flex-col gap-10">
+        <div class="ask-thread-shell mx-auto flex min-h-full max-w-4xl flex-col gap-10">
           {#each messages as message}
             <div class={message.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
               <div
                 class={message.role === 'user'
-                  ? 'max-w-[78%] rounded-[28px] rounded-br-lg bg-gradient-to-br from-slate-100 to-slate-50 px-5 py-4 text-slate-800 ring-1 ring-inset ring-slate-200/60 shadow-sm dark:from-slate-800 dark:to-slate-900 dark:text-slate-100 dark:ring-slate-700/60'
-                  : 'w-full max-w-[90%] px-1 py-1 text-slate-800 dark:text-slate-100'}
+                  ? 'ask-message-card ask-message-card-user max-w-[78%] rounded-[28px] rounded-br-lg bg-gradient-to-br from-slate-100 to-slate-50 px-5 py-4 text-slate-800 ring-1 ring-inset ring-slate-200/60 shadow-sm dark:from-slate-800 dark:to-slate-900 dark:text-slate-100 dark:ring-slate-700/60'
+                  : 'ask-message-card ask-message-card-assistant w-full max-w-[90%] px-1 py-1 text-slate-800 dark:text-slate-100'}
               >
                 {#if message.role === 'assistant'}
                   <div class="markdown-body assistant-markdown max-w-none">
@@ -334,7 +410,7 @@
 
                       <div class="mt-3 space-y-2">
                         {#each message.references as item}
-                          <div class="rounded-[20px] bg-white/88 px-3 py-3 ring-1 ring-inset ring-slate-200/70 dark:bg-slate-900/80 dark:ring-slate-800">
+                          <div class="ask-reference-card rounded-[20px] bg-white/88 px-3 py-3 ring-1 ring-inset ring-slate-200/70 dark:bg-slate-900/80 dark:ring-slate-800">
                             <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400 dark:text-slate-500">
                               <span>{sourceLabel(item.sourceType)}</span>
                               <span>{item.date}</span>
@@ -394,7 +470,7 @@
 
     <div class="pointer-events-none sticky bottom-0 bg-gradient-to-t from-slate-50 via-slate-50/90 to-transparent px-4 pb-4 pt-8 dark:from-slate-950 dark:via-slate-950/84">
       <div class="pointer-events-auto mx-auto max-w-4xl">
-        <div class="rounded-[30px] border border-slate-200/70 bg-white/94 px-4 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/88 dark:shadow-[0_12px_32px_rgba(2,6,23,0.32)]">
+        <div class="ask-composer-shell rounded-[30px] border border-slate-200/70 bg-white/94 px-4 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.08)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/88 dark:shadow-[0_12px_32px_rgba(2,6,23,0.32)]">
           <textarea
             bind:this={composer}
             bind:value={input}
@@ -416,7 +492,7 @@
               >
                 <option value={BASIC_ASSISTANT_MODEL_ID}>{t('ask.basicTemplate')}</option>
                 {#each modelProfiles as profile}
-                  <option value={profile.id}>{profile.name || t('ask.aiEnhanced')}</option>
+                  <option value={profile.id}>{displayModelProfileName(profile) || t('ask.aiEnhanced')}</option>
                 {/each}
               </select>
 

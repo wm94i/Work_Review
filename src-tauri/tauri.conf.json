@@ -3,7 +3,7 @@
     "beforeBuildCommand": "npm run build",
     "beforeDevCommand": "npm run dev",
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173"
+    "devUrl": "http://127.0.0.1:5173"
   },
   "bundle": {
     "active": true,
@@ -84,6 +84,7 @@
         "title": "",
         "width": 1000,
         "height": 700,
+        "visible": false,
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,

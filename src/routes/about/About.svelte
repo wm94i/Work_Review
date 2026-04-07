@@ -10,9 +10,6 @@
   const alipaySponsorshipQr = new URL('../../../docs/sponsorship/zfb.png', import.meta.url).href;
 
   let appVersion = '';
-  let dataDir = '';
-  let linuxSessionInfo = null;
-  
   let isCheckingUpdate = false;
   let isSponsorshipOpen = false;
   let updateStatus = '';
@@ -22,8 +19,6 @@
   onMount(async () => {
     try {
       appVersion = await getVersion();
-      dataDir = await invoke('get_data_dir');
-      linuxSessionInfo = await invoke('get_linux_session_support');
     } catch (e) {
       console.error('初始化失败:', e);
       appVersion = '1.0.0';
@@ -31,11 +26,9 @@
   });
 
   async function openGitHub() {
-    // 使用正确的仓库名（大小写一致）
     await open('https://github.com/wm94i/Work_Review');
   }
-  // 通过后端命令直接调用系统文件管理器打开数据目录
-  // 绕过 plugin-shell 对本地路径的兼容性问题
+
   async function openDataDir() {
     try {
       await invoke('open_data_dir');
@@ -52,10 +45,9 @@
     isSponsorshipOpen = false;
   }
 
-  // 检查更新
   async function checkForUpdates() {
     if (isCheckingUpdate) return;
-    
+
     isCheckingUpdate = true;
     updateStatus = t('about.checkingUpdates');
 
@@ -88,24 +80,23 @@
 
 <svelte:window on:keydown={handleWindowKeydown} />
 
-<div class="page-shell" data-locale={currentLocale}>
-  <div class="mx-auto flex w-full max-w-3xl flex-col gap-4">
-    <div class="page-card px-6 py-7 text-center sm:px-8">
-      <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] bg-[linear-gradient(180deg,#eef2ff,#ffffff)] shadow-[0_14px_30px_rgba(99,102,241,0.12)] ring-1 ring-slate-200/80 dark:bg-[linear-gradient(180deg,rgba(49,46,129,0.5),rgba(15,23,42,0.96))] dark:ring-slate-700/70">
-        <img src="/icons/256x256.png" alt="Work Review" class="h-16 w-16 rounded-[18px] object-cover" />
-      </div>
-
-      <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <h1 class="text-[2rem] font-semibold tracking-tight text-slate-900 dark:text-white">Work Review</h1>
+<div class="page-shell about-editorial-shell" data-locale={currentLocale}>
+  <div class="mx-auto w-full max-w-4xl about-minimal-shell">
+    <section class="page-card about-brand-card">
+      <div class="about-brand-head">
+        <div class="about-brand-mark">
+          <img src="/icons/256x256.png" alt="Work Review" class="h-16 w-16 rounded-[18px] object-cover" />
+        </div>
         <span class="page-inline-chip-brand">v{appVersion}</span>
       </div>
 
-      <p class="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-        {t('about.description')}
-      </p>
+      <div class="about-brand-copy">
+        <h1 class="about-brand-title">Work Review</h1>
+        <p class="about-brand-description">{t('about.description')}</p>
+      </div>
 
-      <div class="mt-6 flex flex-col items-center gap-3">
-        <div class="flex flex-wrap items-center justify-center gap-2.5">
+      <div class="about-action-strip">
+        <div class="about-action-row">
           <button on:click={openGitHub} class="page-action-secondary min-h-10 px-4 py-2">
             <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
             <span class="leading-none">GitHub</span>
@@ -117,7 +108,7 @@
           <button
             type="button"
             on:click={openSponsorshipModal}
-            class="page-action-secondary min-h-10 px-4 py-2 border-amber-200 bg-amber-50/80 text-amber-700 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/50"
+            class="about-support-link"
           >
             <svg class="w-4 h-4 shrink-0 text-rose-500 dark:text-rose-400" fill="currentColor" viewBox="0 0 24 24">
               <path d="M11.996 21.357c-.34 0-.673-.092-.966-.267C8.304 19.466 2.25 15.48 2.25 9.806c0-3.034 2.395-5.556 5.47-5.556 1.708 0 3.31.78 4.276 2.074.966-1.293 2.567-2.074 4.275-2.074 3.074 0 5.48 2.522 5.48 5.556 0 5.674-6.054 9.66-8.78 11.284a1.88 1.88 0 0 1-.975.267Z" />
@@ -145,84 +136,32 @@
           </button>
         </div>
       </div>
+    </section>
 
-      <div class="mx-auto mt-6 w-full max-w-2xl rounded-2xl border border-slate-200/75 bg-slate-50/72 px-5 py-4 text-center dark:border-slate-700/75 dark:bg-slate-800/34">
-        <div class="flex flex-col items-center gap-1">
-          <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-100">{t('about.dataDirTitle')}</h3>
-          <span class="text-[11px] font-medium uppercase tracking-[0.12em] text-slate-400 dark:text-slate-500">{t('about.dataDirSubtitle')}</span>
-        </div>
-        <p class="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-          {t('about.dataDirDescription')}
-        </p>
-        <p class="mx-auto mt-3 max-w-xl break-all rounded-xl border border-slate-200/80 bg-white/86 px-4 py-3 font-mono text-[13px] leading-6 text-slate-700 dark:border-slate-700/80 dark:bg-slate-900/52 dark:text-slate-300">
-          {dataDir || t('about.loadingDataDir')}
-        </p>
-      </div>
+    <section class="about-trust-grid">
+      <article class="page-card about-trust-card">
+        <span class="about-trust-kicker">01</span>
+        <h3 class="about-trust-title">{t('about.localFirstTitle')}</h3>
+        <p class="about-trust-copy">{t('about.localFirstCopy')}</p>
+      </article>
+      <article class="page-card about-trust-card">
+        <span class="about-trust-kicker">02</span>
+        <h3 class="about-trust-title">{t('about.timelineTrustTitle')}</h3>
+        <p class="about-trust-copy">{t('about.timelineTrustCopy')}</p>
+      </article>
+      <article class="page-card about-trust-card">
+        <span class="about-trust-kicker">03</span>
+        <h3 class="about-trust-title">{t('about.reportTrustTitle')}</h3>
+        <p class="about-trust-copy">{t('about.reportTrustCopy')}</p>
+      </article>
+    </section>
 
-      {#if linuxSessionInfo?.platform === 'linux'}
-        <div class="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-amber-200/80 bg-amber-50/80 px-5 py-4 text-left dark:border-amber-900/60 dark:bg-amber-950/20">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="text-sm font-semibold text-amber-900 dark:text-amber-100">{t('about.linuxSessionTitle')}</h3>
-              <p class="mt-1 text-sm leading-6 text-amber-800/90 dark:text-amber-200/90">
-                {#if linuxSessionInfo.sessionType === 'x11'}
-                  {t('about.linuxSessionX11Ready')}
-                {:else if linuxSessionInfo.sessionType === 'wayland' && linuxSessionInfo.desktopEnvironment === 'gnome' && linuxSessionInfo.activeWindowSupported}
-                  {t('about.linuxSessionGnomeWaylandReady')}
-                {:else if linuxSessionInfo.sessionType === 'wayland' && linuxSessionInfo.desktopEnvironment === 'gnome'}
-                  {t('about.linuxSessionGnomeWaylandMissingProvider')}
-                {:else}
-                  {t('about.linuxSessionWaylandWarning')}
-                {/if}
-              </p>
-            </div>
-            <span class="inline-flex items-center rounded-full border border-amber-300/80 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:border-amber-800/80 dark:bg-amber-950/50 dark:text-amber-200">
-              {linuxSessionInfo.sessionType} / {linuxSessionInfo.desktopEnvironment}
-            </span>
-          </div>
-
-          <div class="mt-3 flex flex-wrap gap-2">
-            <span class="inline-flex items-center rounded-full border border-amber-200 bg-white/75 px-3 py-1 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
-              {linuxSessionInfo.screenshotSupported ? t('about.linuxSessionScreenshotReady') : t('about.linuxSessionScreenshotPending')}
-            </span>
-            <span class="inline-flex items-center rounded-full border border-amber-200 bg-white/75 px-3 py-1 text-xs text-amber-700 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
-              {linuxSessionInfo.activeWindowSupported ? t('about.linuxSessionWindowReady') : t('about.linuxSessionWindowPending')}
-            </span>
-          </div>
-
-          <div class="mt-4 grid gap-3 md:grid-cols-2">
-            <div class="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
-              <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
-                {t('about.linuxSessionProviderLabel')}
-              </p>
-              <p class="mt-2 text-sm font-medium text-amber-900 dark:text-amber-100">
-                {linuxSessionInfo.activeWindowProvider}
-              </p>
-            </div>
-
-            <div class="rounded-2xl border border-amber-200/80 bg-white/70 px-4 py-3 dark:border-amber-900/60 dark:bg-amber-950/30">
-              <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700 dark:text-amber-300">
-                {t('about.linuxBrowserUrlCapabilityTitle')}
-              </p>
-              <p class="mt-2 text-sm font-medium text-amber-900 dark:text-amber-100">
-                {#if linuxSessionInfo.browserUrlSupportLevel === 'mixed'}
-                  {t('about.linuxBrowserUrlSupportMixed')}
-                {:else}
-                  {t('about.linuxBrowserUrlSupportLimited')}
-                {/if}
-              </p>
-            </div>
-          </div>
-        </div>
-      {/if}
-
-      <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <span class="page-inline-chip-brand">Tauri 2</span>
-        <span class="page-inline-chip-muted">Svelte</span>
-        <span class="page-inline-chip-muted">Rust</span>
-        <span class="page-inline-chip-muted">SQLite</span>
-      </div>
-    </div>
+    <section class="about-tech-stack">
+      <span class="about-tech-pill about-tech-pill-primary">Tauri 2</span>
+      <span class="about-tech-pill">Svelte</span>
+      <span class="about-tech-pill">Rust</span>
+      <span class="about-tech-pill">SQLite</span>
+    </section>
 
     {#if updateStatus}
       <div class="page-banner-warning justify-center text-center">

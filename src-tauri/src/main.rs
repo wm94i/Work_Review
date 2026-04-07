@@ -374,6 +374,117 @@ fn should_hide_main_window_on_setup(config: &AppConfig, launch_args: &[String]) 
     config.auto_start && config.auto_start_silent && launch_args_contain_autostart(launch_args)
 }
 
+fn should_request_screen_capture_permission(
+    has_screen_capture_permission: bool,
+    already_prompted: bool,
+) -> bool {
+    !has_screen_capture_permission && !already_prompted
+}
+
+struct WindowsSystemDialogRule {
+    executable_names: &'static [&'static str],
+    exact_window_texts: &'static [&'static str],
+}
+
+const WINDOWS_SYSTEM_DIALOG_RULES: &[WindowsSystemDialogRule] = &[
+    WindowsSystemDialogRule {
+        executable_names: &["taskmgr"],
+        exact_window_texts: &[
+            "task manager",
+            "task manager (not responding)",
+            "任务管理器",
+            "任务管理器 (未响应)",
+            "任务管理器（未响应）",
+        ],
+    },
+    WindowsSystemDialogRule {
+        executable_names: &["consent", "credentialuibroker"],
+        exact_window_texts: &[
+            "user account control",
+            "windows security",
+            "用户账户控制",
+            "用户帐户控制",
+            "windows 安全",
+            "windows 安全中心",
+        ],
+    },
+];
+
+fn normalized_windows_system_window_text(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn windows_path_file_stem(path: &str) -> Option<String> {
+    let file_name = path
+        .rsplit(['\\', '/'])
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let stem = file_name
+        .strip_suffix(".exe")
+        .or_else(|| file_name.strip_suffix(".EXE"))
+        .unwrap_or(file_name)
+        .trim();
+
+    if stem.is_empty() {
+        None
+    } else {
+        Some(stem.to_lowercase())
+    }
+}
+
+fn windows_executable_name(active_window: &monitor::ActiveWindow) -> Option<String> {
+    active_window
+        .executable_path
+        .as_deref()
+        .and_then(windows_path_file_stem)
+        .or_else(|| {
+            let normalized_name = active_window
+                .app_name
+                .trim()
+                .trim_end_matches(".exe")
+                .trim_end_matches(".EXE")
+                .trim();
+
+            if normalized_name.is_empty() {
+                None
+            } else {
+                Some(normalized_name.to_lowercase())
+            }
+        })
+}
+
+fn matches_windows_system_dialog_rule(
+    active_window: &monitor::ActiveWindow,
+    rule: &WindowsSystemDialogRule,
+) -> bool {
+    let executable_name = windows_executable_name(active_window);
+    if executable_name.as_deref().is_some_and(|name| {
+        rule.executable_names
+            .iter()
+            .any(|candidate| candidate == &name)
+    }) {
+        return true;
+    }
+
+    let app_name = normalized_windows_system_window_text(&active_window.app_name);
+    let window_title = normalized_windows_system_window_text(&active_window.window_title);
+    let allow_exact_text_fallback =
+        !app_name.is_empty() && (window_title.is_empty() || app_name == window_title);
+
+    allow_exact_text_fallback
+        && rule
+            .exact_window_texts
+            .iter()
+            .any(|candidate| candidate == &app_name)
+}
+
+fn is_windows_system_dialog(active_window: &monitor::ActiveWindow) -> bool {
+    WINDOWS_SYSTEM_DIALOG_RULES
+        .iter()
+        .any(|rule| matches_windows_system_dialog_rule(active_window, rule))
+}
+
 const BREAK_REMINDER_BUFFER_MINUTES: u64 = 5;
 const BREAK_REMINDER_MESSAGE: &str = "该休息一下了，起来活动活动吧。";
 
@@ -1027,8 +1138,11 @@ fn should_skip_system_window(active_window: &monitor::ActiveWindow) -> bool {
         (name_trimmed == "explorer" || name_trimmed == "file explorer")
             && active_window.window_title.is_empty()
     };
+    // Windows 在 UAC / 任务管理器异常时，进程名可能退化成标题或受保护进程名，
+    // 需要结合标题与可执行路径一起兜底过滤。
+    let is_windows_system_dialog = is_windows_system_dialog(active_window);
 
-    is_sys || is_explorer_shell
+    is_sys || is_explorer_shell || is_windows_system_dialog
 }
 
 async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
@@ -2476,7 +2590,7 @@ async fn main() {
 
     // 加载配置
     let config_path = data_dir.join("config.json");
-    let config = AppConfig::load(&config_path).unwrap_or_else(|e| {
+    let mut config = AppConfig::load(&config_path).unwrap_or_else(|e| {
         log::warn!("加载配置失败，使用默认配置: {e}");
         AppConfig::default()
     });
@@ -2495,14 +2609,25 @@ async fn main() {
     #[cfg(target_os = "macos")]
     {
         // 1. 屏幕录制权限（截图功能必需）
-        if !screenshot::has_screen_capture_permission() {
+        let has_screen_capture_permission = screenshot::has_screen_capture_permission();
+        let already_prompted = config.macos_screen_capture_permission_prompted;
+        if should_request_screen_capture_permission(has_screen_capture_permission, already_prompted)
+        {
             log::warn!("⚠️  屏幕录制权限未授权，正在请求...");
             log::warn!(
                 "   请在「系统设置 → 隐私与安全性 → 屏幕录制」中授权 Work Review，然后重启应用"
             );
             screenshot::request_screen_capture_permission();
+        } else if !has_screen_capture_permission {
+            log::warn!("⚠️  屏幕录制权限仍未授权，跳过重复请求，请在系统设置中确认后重启应用");
         } else {
             log::info!("✅ 屏幕录制权限已授权");
+        }
+        config.macos_screen_capture_permission_prompted = !has_screen_capture_permission;
+        if config.macos_screen_capture_permission_prompted != already_prompted {
+            if let Err(e) = config.save(&config_path) {
+                log::warn!("保存 macOS 录屏权限提示状态失败: {e}");
+            }
         }
 
         // 2. 辅助功能权限（读取窗口标题、浏览器 URL 必需）
@@ -2603,9 +2728,19 @@ async fn main() {
             let window = app.get_webview_window("main").unwrap();
             configure_main_window(&window);
             let launch_args = std::env::args().collect::<Vec<_>>();
-
             // 获取 Arc<Mutex<AppState>> 并克隆以便在异步任务中使用
             let state = app.state::<Arc<Mutex<AppState>>>();
+            let should_hide_main_window = {
+                let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
+                should_hide_main_window_on_setup(&state_guard.config, &launch_args)
+            };
+
+            if should_hide_main_window {
+                let _ = window.hide();
+            } else {
+                let _ = window.show();
+            }
+
             let state_clone = state.inner().clone();
             let state_clone2 = state.inner().clone();
             let state_clone3 = state.inner().clone();
@@ -2799,15 +2934,6 @@ async fn main() {
                 // decorations 配置由 tauri.conf.json 控制，用户可通过设置中的开关动态修改
             }
 
-            let should_hide_main_window = {
-                let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
-                should_hide_main_window_on_setup(&state_guard.config, &launch_args)
-            };
-
-            if should_hide_main_window {
-                let _ = window.hide();
-            }
-
             sync_effective_dock_visibility(&app.handle());
 
             // 保存 AppHandle 到全局变量，用于从 macOS Dock 点击恢复窗口
@@ -2941,9 +3067,9 @@ mod tests {
         recording_loop_decision, resolve_activity_classification, reusable_cached_active_window,
         screen_lock_check_interval_ms_for_platform, should_confirm_idle,
         should_hide_main_window_on_setup, should_prevent_exit,
-        should_probe_browser_url_before_change_detection, tray_recording_toggle_action,
-        tray_recording_toggle_label, BreakReminderRuntime, BreakReminderSignal,
-        MainWindowCloseBehavior, RecordingToggleAction,
+        should_probe_browser_url_before_change_detection, should_request_screen_capture_permission,
+        should_skip_system_window, tray_recording_toggle_action, tray_recording_toggle_label,
+        BreakReminderRuntime, BreakReminderSignal, MainWindowCloseBehavior, RecordingToggleAction,
     };
     use crate::avatar_engine::{apply_avatar_opacity, default_avatar_state, derive_avatar_state};
     use crate::config::{AppConfig, WebsiteSemanticRule};
@@ -3285,6 +3411,65 @@ mod tests {
             "work-review".to_string(),
             "--autostarted".to_string()
         ]));
+    }
+
+    #[test]
+    fn 任务管理器未响应时仍应识别为系统窗口() {
+        let active_window = ActiveWindow {
+            app_name: "任务管理器 (未响应)".to_string(),
+            window_title: "任务管理器 (未响应)".to_string(),
+            browser_url: None,
+            executable_path: None,
+            window_bounds: None,
+        };
+
+        assert!(should_skip_system_window(&active_window));
+    }
+
+    #[test]
+    fn uac提示窗口应识别为系统窗口() {
+        let active_window = ActiveWindow {
+            app_name: "consent.exe".to_string(),
+            window_title: "用户账户控制".to_string(),
+            browser_url: None,
+            executable_path: Some(r"C:\Windows\System32\consent.exe".to_string()),
+            window_bounds: None,
+        };
+
+        assert!(should_skip_system_window(&active_window));
+    }
+
+    #[test]
+    fn windows_security提示窗口应识别为系统窗口() {
+        let active_window = ActiveWindow {
+            app_name: "Windows Security".to_string(),
+            window_title: "Windows Security".to_string(),
+            browser_url: None,
+            executable_path: None,
+            window_bounds: None,
+        };
+
+        assert!(should_skip_system_window(&active_window));
+    }
+
+    #[test]
+    fn 普通应用标题提到任务管理器时不应被误判为系统窗口() {
+        let active_window = ActiveWindow {
+            app_name: "任务管理器实现说明".to_string(),
+            window_title: "任务管理器实现说明".to_string(),
+            browser_url: None,
+            executable_path: None,
+            window_bounds: None,
+        };
+
+        assert!(!should_skip_system_window(&active_window));
+    }
+
+    #[test]
+    fn macos录屏权限已提示过时不应重复请求() {
+        assert!(should_request_screen_capture_permission(false, false));
+        assert!(!should_request_screen_capture_permission(false, true));
+        assert!(!should_request_screen_capture_permission(true, false));
     }
 
     #[test]

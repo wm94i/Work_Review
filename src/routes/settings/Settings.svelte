@@ -197,7 +197,7 @@
   });
 </script>
 
-<div class="page-shell" data-locale={currentLocale}>
+<div class="page-shell settings-editorial-shell" data-locale={currentLocale}>
   <div class="page-header">
     <div class="page-title-group">
       <div class="page-title-badge">
@@ -213,21 +213,23 @@
     </div>
 
     <!-- 保存按钮 -->
-    <button
-      on:click={saveConfig}
-      disabled={loading || saving}
-      class="settings-action-primary px-4 rounded-xl"
-    >
-      {#if saving}
-        <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-        {t('settings.saving')}
-      {:else if success}
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-        {t('settings.saved')}
-      {:else}
-        {t('settings.save')}
-      {/if}
-    </button>
+    <div class="settings-save-dock">
+      <button
+        on:click={saveConfig}
+        disabled={loading || saving}
+        class="settings-action-primary px-4 rounded-xl"
+      >
+        {#if saving}
+          <div class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+          {t('settings.saving')}
+        {:else if success}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+          {t('settings.saved')}
+        {:else}
+          {t('settings.save')}
+        {/if}
+      </button>
+    </div>
   </div>
 
   {#if loading}
@@ -243,63 +245,62 @@
       <button on:click={loadConfig} class="page-action-brand">{t('settings.retry')}</button>
     </div>
   {:else if config}
-    <div class="w-full">
-      <!-- 标签栏 -->
-      <div class="page-tabs">
-        {#each tabs as tab}
-          <button
-            on:click={() => activeTab = tab.id}
-            class="page-tab-btn
-                   {activeTab === tab.id
-                     ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}"
-          >
-            {#if tab.icon === 'general'}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            {:else if tab.icon === 'ai'}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-            {:else if tab.icon === 'appearance'}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
-            {:else if tab.icon === 'privacy'}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-            {:else if tab.icon === 'storage'}
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
-            {/if}
-            <span>{t(tab.labelKey)}</span>
-          </button>
-        {/each}
-      </div>
-
-      <!-- 内容区域 -->
-      <div>
-      {#if activeTab === 'general'}
-        <SettingsGeneral bind:config on:change={() => {}} />
-      {:else if activeTab === 'ai'}
-        <div class="page-card">
-          <h3 class="settings-card-title">{t('settings.aiCardTitle')}</h3>
-          <p class="settings-card-desc">{t('settings.aiCardDescription')}</p>
-          <SettingsAI bind:config {providers} on:change={() => {}} />
+    <div class="w-full settings-editorial-board">
+      <div class="settings-stage-layout">
+        <div class="settings-tab-rail">
+          {#each tabs as tab}
+            <button
+              on:click={() => activeTab = tab.id}
+              class="settings-tab-rail-item {activeTab === tab.id ? 'settings-tab-rail-item-active' : ''}"
+            >
+              <span class="settings-tab-rail-icon">
+                {#if tab.icon === 'general'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                {:else if tab.icon === 'ai'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                {:else if tab.icon === 'appearance'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" /></svg>
+                {:else if tab.icon === 'privacy'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                {:else if tab.icon === 'storage'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
+                {/if}
+              </span>
+              <span>{t(tab.labelKey)}</span>
+            </button>
+          {/each}
         </div>
-      {:else if activeTab === 'appearance'}
-        <SettingsAppearance bind:config on:change={() => {}} />
-      {:else if activeTab === 'privacy'}
-        <SettingsPrivacy
-          bind:config
-          {runningApps}
-          {recentApps}
-          on:change={() => {}}
-        />
-      {:else if activeTab === 'storage'}
-        <SettingsStorage
-          bind:config
-          {storageStats}
-          {dataDir}
-          {defaultDataDir}
-          on:change={() => {}}
-          on:clearCache={handleClearCache}
-          on:dataDirChanged={handleDataDirChanged}
-        />
-      {/if}
+
+        <div class="settings-stage-shell">
+        {#if activeTab === 'general'}
+          <SettingsGeneral bind:config on:change={() => {}} />
+        {:else if activeTab === 'ai'}
+          <div class="page-card">
+            <h3 class="settings-card-title">{t('settings.aiCardTitle')}</h3>
+            <p class="settings-card-desc">{t('settings.aiCardDescription')}</p>
+            <SettingsAI bind:config {providers} on:change={() => {}} />
+          </div>
+        {:else if activeTab === 'appearance'}
+          <SettingsAppearance bind:config on:change={() => {}} />
+        {:else if activeTab === 'privacy'}
+          <SettingsPrivacy
+            bind:config
+            {runningApps}
+            {recentApps}
+            on:change={() => {}}
+          />
+        {:else if activeTab === 'storage'}
+          <SettingsStorage
+            bind:config
+            {storageStats}
+            {dataDir}
+            {defaultDataDir}
+            on:change={() => {}}
+            on:clearCache={handleClearCache}
+            on:dataDirChanged={handleDataDirChanged}
+          />
+        {/if}
+        </div>
       </div>
     </div>
   {/if}

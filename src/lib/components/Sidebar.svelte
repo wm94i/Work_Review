@@ -27,11 +27,19 @@
     currentLocale;
     return t(key, params);
   };
-  const localeOptions = [
-    { value: 'zh-CN', label: 'ZH', fullLabel: '简体中文' },
-    { value: 'zh-TW', label: 'TW', fullLabel: '繁體中文' },
-    { value: 'en', label: 'EN', fullLabel: 'English' },
+  $: sidebarTagSegments = translate('sidebar.tagline')
+    .split('·')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const localeOptionsBase = [
+    { value: 'zh-CN', label: 'ZH', fullLabelKey: 'sidebar.localeNames.zhCN' },
+    { value: 'zh-TW', label: 'TW', fullLabelKey: 'sidebar.localeNames.zhTW' },
+    { value: 'en', label: 'EN', fullLabelKey: 'sidebar.localeNames.en' },
   ];
+  $: localeOptions = localeOptionsBase.map((option) => ({
+    ...option,
+    fullLabel: translate(option.fullLabelKey),
+  }));
   $: currentLocaleLabel = getLocaleShortLabel(currentLocale);
 
   function cycleTheme() {
@@ -91,25 +99,32 @@
 
 <svelte:window on:click={handleWindowClick} on:keydown={handleWindowKeydown} />
 
-<div class="h-full flex flex-col overflow-hidden">
+<div class="sidebar-editorial-shell h-full flex flex-col overflow-hidden">
   <div class="sidebar-top">
     <!-- Logo 区域 -->
-    <div class="sidebar-brand">
-      <div class="flex items-center gap-3 min-w-0">
+    <div class="sidebar-brand sidebar-brand-panel">
+      <div class="sidebar-brand-row flex items-center gap-3 min-w-0">
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-xl overflow-hidden shadow-md shrink-0 ring-1 ring-slate-200/50 dark:ring-slate-700/50">
             <img src="/icons/256x256.png" alt="Work Review" class="w-full h-full object-cover" />
           </div>
           <div class="min-w-0">
             <h1 class="sidebar-brand-title">Work Review</h1>
-            <p class="sidebar-brand-subtitle">{translate('sidebar.tagline')}</p>
+            <p class="sidebar-brand-line" aria-label={translate('sidebar.tagline')}>
+              {#each sidebarTagSegments as segment, index}
+                <span>{segment}</span>
+                {#if index < sidebarTagSegments.length - 1}
+                  <span class="sidebar-brand-separator">·</span>
+                {/if}
+              {/each}
+            </p>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 录制状态 -->
-    <div class="sidebar-status">
+    <div class="sidebar-status sidebar-status-panel">
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <span class="relative flex h-2.5 w-2.5">
@@ -139,7 +154,7 @@
 
   <div class="sidebar-main">
     <!-- 导航菜单 -->
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav sidebar-nav-section">
       <ul class="sidebar-nav-list">
         {#each navItems as item}
           <li>
@@ -152,38 +167,39 @@
               {#if activeStates[item.path]}
                 <div class="sidebar-nav-rail"></div>
               {/if}
+              <div class="sidebar-nav-main">
+                <!-- SVG 图标 -->
+                <div class="sidebar-nav-icon {activeStates[item.path] ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-500 dark:group-hover:text-slate-300'}">
+                  {#if item.icon === 'home'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                    </svg>
+                  {:else if item.icon === 'timeline'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  {:else if item.icon === 'report'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  {:else if item.icon === 'ask'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h8M8 14h4m-6 6h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  {:else if item.icon === 'settings'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                  {:else if item.icon === 'info'}
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  {/if}
+                </div>
 
-              <!-- SVG 图标 -->
-              <div class="sidebar-nav-icon {activeStates[item.path] ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-slate-500 dark:group-hover:text-slate-300'}">
-                {#if item.icon === 'home'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                  </svg>
-                {:else if item.icon === 'timeline'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                {:else if item.icon === 'report'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                {:else if item.icon === 'ask'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h8M8 14h4m-6 6h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                {:else if item.icon === 'settings'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                {:else if item.icon === 'info'}
-                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                {/if}
+                <span class="sidebar-nav-label {activeStates[item.path] ? 'sidebar-nav-label-active' : ''}">{translate(item.labelKey)}</span>
               </div>
-
-              <span class="sidebar-nav-label {activeStates[item.path] ? 'sidebar-nav-label-active' : ''}">{translate(item.labelKey)}</span>
             </a>
           </li>
         {/each}
@@ -191,7 +207,7 @@
     </nav>
 
     <!-- 底部工具栏 -->
-    <div class="sidebar-bottom">
+    <div class="sidebar-bottom sidebar-toolbelt">
       <div class="sidebar-footer w-full justify-between gap-y-2">
 
         <div class="relative" bind:this={localeMenuContainer}>

@@ -423,6 +423,9 @@ pub struct AppConfig {
     /// 开机自启动时是否静默驻留而不显示主界面
     #[serde(default)]
     pub auto_start_silent: bool,
+    /// macOS 录屏权限是否已经主动弹过引导，避免每次启动都重复请求
+    #[serde(default)]
+    pub macos_screen_capture_permission_prompted: bool,
     /// 主题模式: system, light, dark
     pub theme: String,
     /// 上班开始时间（0-23）
@@ -528,6 +531,7 @@ impl Default for AppConfig {
             daily_report_export_dir: None,
             auto_start: false,
             auto_start_silent: false,
+            macos_screen_capture_permission_prompted: false,
             theme: "system".to_string(),
             work_start_hour: 9,
             work_end_hour: 18,
@@ -884,6 +888,13 @@ mod tests {
         let config = AppConfig::default();
 
         assert!(!config.auto_start_silent);
+    }
+
+    #[test]
+    fn macos录屏权限提示默认不应标记为已弹出() {
+        let config = AppConfig::default();
+
+        assert!(!config.macos_screen_capture_permission_prompted);
     }
 
     #[test]

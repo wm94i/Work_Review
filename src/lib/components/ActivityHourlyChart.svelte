@@ -24,6 +24,26 @@
     return keyHours.includes(hour);
   }
 
+  function hourAxisLabelAlignmentClass(hour) {
+    if (hour === 0) {
+      return 'justify-start';
+    }
+    if (hour === 23) {
+      return 'justify-end';
+    }
+    return 'justify-center';
+  }
+
+  function tooltipAlignmentClass(hour) {
+    if (hour <= 2) {
+      return 'left-0';
+    }
+    if (hour >= 21) {
+      return 'right-0';
+    }
+    return 'left-1/2 -translate-x-1/2';
+  }
+
   function formatAxisTickLabel(seconds) {
     const minutes = Math.round(seconds / 60);
     if (minutes === 0) {
@@ -54,6 +74,7 @@
   $: topBuckets = [...activeBuckets]
     .sort((left, right) => right.duration - left.duration || left.hour - right.hour)
     .slice(0, 3);
+  $: selectedBucket = buckets[selectedHour] || null;
   $: axisMax = (() => {
     const raw = Math.max(maxDuration, 60);
     const minute = 60;
@@ -140,7 +161,7 @@
         {/each}
       </div>
     {:else}
-      <div class="rounded-2xl bg-slate-50 px-3 pb-3 pt-4 dark:bg-slate-900/40">
+      <div class="overflow-hidden rounded-2xl bg-slate-50 px-3 pb-3 pt-4 dark:bg-slate-900/40">
         <div class="grid grid-cols-[2.9rem_minmax(0,1fr)] gap-2">
           <div class="relative h-44">
             {#each yAxisTicks as tick, index}
@@ -163,7 +184,7 @@
                 {@const isPeak = bucket.duration > 0 && bucket.hour === peakBucket.hour}
                 <div class="relative flex h-full min-w-0 flex-1 flex-col justify-end">
                   {#if mode === 'column' && selectedHour === bucket.hour}
-                    <div class="pointer-events-none absolute left-1/2 top-1 z-10 -translate-x-1/2">
+                    <div class={`pointer-events-none absolute top-1 z-10 ${tooltipAlignmentClass(bucket.hour)}`}>
                       <span class="flex min-w-[6.75rem] flex-col items-center rounded-2xl bg-slate-900 px-2.5 py-1.5 text-[10px] font-medium text-white shadow-sm dark:bg-slate-100 dark:text-slate-900">
                         <span class="whitespace-nowrap">
                           {formatHourRangeLabel(bucket.hour)}
@@ -186,18 +207,34 @@
               {/each}
             </div>
 
-            <div class="mt-3 flex gap-1">
+            <div class="mt-3 flex gap-1 px-1">
               {#each buckets as bucket}
-                <div class="flex-1 text-center">
+                <div class="flex-1">
+                  <div class={`flex w-full ${hourAxisLabelAlignmentClass(bucket.hour)}`}>
                   <span class={`text-[10px] font-medium ${showHourLabel(bucket.hour) ? 'text-slate-400 dark:text-slate-500' : 'text-transparent'}`}>
                     {showHourLabel(bucket.hour) ? formatHourLabel(bucket.hour) : '.'}
                   </span>
+                  </div>
                 </div>
               {/each}
             </div>
           </div>
         </div>
       </div>
+
+      {#if mode === 'column' && selectedBucket}
+        <div class="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl bg-sky-50 px-3.5 py-3 text-left dark:bg-sky-500/10">
+          <span class="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em] text-sky-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:bg-slate-900/80 dark:text-sky-300">
+            当前选中
+          </span>
+          <span class="min-w-0 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
+            {formatHourRangeLabel(selectedBucket.hour)}
+          </span>
+          <span class="text-sm font-semibold tabular-nums text-slate-500 dark:text-slate-300">
+            {formatDurationLocalized(selectedBucket.duration, { compact: true })}
+          </span>
+        </div>
+      {/if}
     {/if}
   </div>
 </div>
