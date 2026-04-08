@@ -196,6 +196,23 @@ pub fn normalize_display_app_name(app_name: &str) -> String {
         .trim();
 
     let normalized = trimmed.to_lowercase();
+    let compact = normalized
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect::<String>();
+
+    if (normalized.contains("work_review")
+        || normalized.contains("work-review")
+        || normalized.contains("work review")
+        || compact.contains("workreview"))
+        && (normalized.contains("setup")
+            || normalized.contains("installer")
+            || compact.contains("setup")
+            || compact.contains("installer"))
+    {
+        return "Work Review Setup".to_string();
+    }
+
     match normalized.as_str() {
         "work-review" | "work_review" | "workreview" | "work review" => "Work Review".to_string(),
         "chrome" | "google chrome" => "Google Chrome".to_string(),
@@ -229,6 +246,7 @@ pub fn normalize_display_app_name(app_name: &str) -> String {
         "coreautha" | "coreauthuiagent" | "coreauthenticationuiagent" => {
             "System Authentication".to_string()
         }
+        "xfltd" => "XFLTD".to_string(),
         "explorer" => "File Explorer".to_string(),
         "windowsterminal" | "windows terminal" => "Windows Terminal".to_string(),
         "powershell" | "pwsh" => "PowerShell".to_string(),
@@ -1425,6 +1443,11 @@ mod tests {
         assert_eq!(normalize_display_app_name("mail"), "Mail");
         assert_eq!(normalize_display_app_name("邮件"), "Mail");
         assert_eq!(normalize_display_app_name("coreautha"), "System Authentication");
+        assert_eq!(
+            normalize_display_app_name("Work_Review.v1.0.35_x64-setup"),
+            "Work Review Setup"
+        );
+        assert_eq!(normalize_display_app_name("xfltd"), "XFLTD");
     }
 
     #[test]

@@ -14,6 +14,10 @@
     t,
     translateCategoryLabel,
   } from '$lib/i18n/index.js';
+  import {
+    getPreferredTimelineAppName,
+    shouldPreferTimelineFallbackIcon,
+  } from '$lib/utils/appDisplay.js';
   import { resolveAppIconSrc } from '../../lib/utils/appVisuals.js';
   import { formatBrowserUrlForDisplay } from '../../lib/utils/browserUrl.js';
   import { prepareTimelineActivities, upsertTimelineActivity } from './timelineData.js';
@@ -116,14 +120,28 @@
   }
 
   function getTimelineIconSrc(activity) {
+    const preferredAppName = getPreferredTimelineAppName(activity);
+    const base64 = appIcons[getIconCacheKey({
+      appName: activity.app_name,
+      executablePath: activity.executable_path,
+    })];
+
+    if (shouldPreferTimelineFallbackIcon(activity)) {
+      return resolveAppIconSrc(preferredAppName, null);
+    }
+
     return resolveAppIconSrc(
-      activity.app_name,
-      appIcons[getIconCacheKey({ appName: activity.app_name, executablePath: activity.executable_path })]
+      preferredAppName,
+      base64
     );
   }
 
   function getTimelineTitle(activity) {
     return formatWindowTitle(activity.window_title, activity.app_name, activity.browser_url);
+  }
+
+  function getTimelineAppName(activity) {
+    return getPreferredTimelineAppName(activity);
   }
 
   function getTimelineThumbnail(activity) {
@@ -653,7 +671,7 @@
                         {/if}
                       </div>
                       <div class="timeline-entry-heading timeline-entry-heading-featured">
-                        <span class="timeline-entry-app-name">{activity.app_name}</span>
+                        <span class="timeline-entry-app-name">{getTimelineAppName(activity)}</span>
                         <span class="timeline-entry-category timeline-entry-category-pill">{info.name}</span>
                       </div>
                     </div>
@@ -680,7 +698,7 @@
                     {/if}
                   </div>
                   <div class="timeline-entry-heading">
-                    <span class="timeline-entry-app-name">{activity.app_name}</span>
+                    <span class="timeline-entry-app-name">{getTimelineAppName(activity)}</span>
                     <span class="timeline-entry-category timeline-entry-category-pill">{info.name}</span>
                   </div>
                 </div>
@@ -754,7 +772,7 @@
               {/if}
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-slate-800 dark:text-white">{selectedActivity.app_name}</h3>
+              <h3 class="text-lg font-semibold text-slate-800 dark:text-white">{getTimelineAppName(selectedActivity)}</h3>
               <p class="text-sm text-slate-500 dark:text-slate-400">{info.name}</p>
             </div>
           </div>

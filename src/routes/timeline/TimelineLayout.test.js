@@ -18,6 +18,8 @@ test('时间线应通过显式函数判断重点卡片并读取缩略图', async
   assert.match(source, /function selectFeaturedActivityIds/);
   assert.match(source, /featuredActivityIds = new Set/);
   assert.match(source, /function getTimelineThumbnail/);
+  assert.match(source, /getPreferredTimelineAppName/);
+  assert.match(source, /shouldPreferTimelineFallbackIcon/);
 });
 
 test('时间线重点卡片应使用横向标题区与胶囊分类，避免标题和分类互相挤压', async () => {
