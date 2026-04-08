@@ -7,10 +7,30 @@ use crate::config::AiProvider;
 use crate::database::{Activity, DailyStats};
 use crate::error::{AppError, Result};
 use async_trait::async_trait;
-use reqwest::Client;
+use reqwest::{Client, Url};
 use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
+
+fn summary_request_timeout(provider: AiProvider, endpoint: &str) -> Duration {
+    if provider == AiProvider::Ollama || is_local_summary_endpoint(endpoint) {
+        Duration::from_secs(300)
+    } else {
+        Duration::from_secs(90)
+    }
+}
+
+fn is_local_summary_endpoint(endpoint: &str) -> bool {
+    Url::parse(endpoint)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| {
+            matches!(
+                host.as_str(),
+                "localhost" | "127.0.0.1" | "::1" | "[::1]" | "0.0.0.0"
+            )
+        })
+}
 
 fn format_domain_label(domain: &crate::database::DomainUsage, locale: AppLocale) -> String {
     match domain.semantic_category.as_deref().map(str::trim) {
@@ -73,7 +93,7 @@ impl SummaryAnalyzer {
         locale: AppLocale,
     ) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(90))
+            .timeout(summary_request_timeout(provider, endpoint))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .unwrap_or_else(|_| Client::new());
@@ -659,5 +679,44 @@ impl Analyzer for SummaryAnalyzer {
             content: report,
             used_ai: ai_content.1,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summary_request_timeout;
+    use crate::config::AiProvider;
+    use std::time::Duration;
+
+    #[test]
+    fn 本地_openai兼容端点应使用更长的日报生成超时() {
+        assert_eq!(
+            summary_request_timeout(AiProvider::OpenAI, "http://127.0.0.1:1234/v1"),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            summary_request_timeout(AiProvider::OpenAI, "http://localhost:1234/v1"),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn 本地_ollama端点应使用更长的日报生成超时() {
+        assert_eq!(
+            summary_request_timeout(AiProvider::Ollama, "http://localhost:11434"),
+            Duration::from_secs(300)
+        );
+    }
+
+    #[test]
+    fn 远端摘要日报接口应保持原有超时() {
+        assert_eq!(
+            summary_request_timeout(AiProvider::OpenAI, "https://api.openai.com/v1"),
+            Duration::from_secs(90)
+        );
+        assert_eq!(
+            summary_request_timeout(AiProvider::Gemini, "https://generativelanguage.googleapis.com/v1"),
+            Duration::from_secs(90)
+        );
     }
 }
