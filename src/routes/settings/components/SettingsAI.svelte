@@ -220,6 +220,9 @@
             ? t('settingsAI.saveAfterTestWithLatency', { ms: result.response_time_ms })
             : t('settingsAI.saveAfterTest')
         );
+        // 连接成功后自动刷新模型列表
+        refreshModels();
+        );
       } else {
         const failureMessage = String(result?.message || '').trim();
         aiStore.setError(
@@ -276,7 +279,7 @@
       const models = await invoke('fetch_models', {
         provider: config.text_model.provider,
         endpoint: config.text_model.endpoint,
-        apiKey: config.text_model.api_key || null,
+        api_key: config.text_model.api_key || null,
       });
       fetchedModels = Array.isArray(models) ? models : [];
       modelsHint = fetchedModels.length > 0

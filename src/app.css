@@ -184,6 +184,11 @@
 
 .app-shell-windowbar {
   cursor: default;
+  background: linear-gradient(180deg, #f4f7ff 0%, #eef2ff 100%);
+}
+
+.dark .app-shell-windowbar {
+  background: linear-gradient(180deg, #020617 0%, #08101f 100%);
 }
 
 .app-shell-window-controls {
