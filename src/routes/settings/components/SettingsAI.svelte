@@ -220,8 +220,6 @@
             ? t('settingsAI.saveAfterTestWithLatency', { ms: result.response_time_ms })
             : t('settingsAI.saveAfterTest')
         );
-        // 连接成功后自动刷新模型列表
-        refreshModels();
         );
       } else {
         const failureMessage = String(result?.message || '').trim();
@@ -285,6 +283,12 @@
       modelsHint = fetchedModels.length > 0
         ? t('settingsAI.loadedModels', { count: fetchedModels.length })
         : t('settingsAI.noModelsFound');
+      // 刷新模型成功即代表连接成功，同步设置测试状态
+      aiStore.setSuccess(
+        fetchedModels.length > 0
+          ? t('settingsAI.loadedModels', { count: fetchedModels.length })
+          : t('settingsAI.testSuccess')
+      );
       if (
         fetchedModels.length > 0 &&
         (
