@@ -220,7 +220,6 @@
             ? t('settingsAI.saveAfterTestWithLatency', { ms: result.response_time_ms })
             : t('settingsAI.saveAfterTest')
         );
-        );
       } else {
         const failureMessage = String(result?.message || '').trim();
         aiStore.setError(
@@ -301,8 +300,14 @@
       }
     } catch (e) {
       fetchedModels = [];
-      modelsError = e.toString();
+      const msg = e.toString();
+      modelsError = msg;
       modelsHint = '';
+      aiStore.setError(
+        msg && !shouldHideRawMessage(msg)
+          ? msg
+          : t('settingsAI.genericTestFailed')
+      );
     } finally {
       modelsLoading = false;
     }
