@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.37] - 2026-04-13
+
+### 修复
+- 修复 Windows 自定义窗口控件（最小化/最大化/关闭）视觉悬空问题：按钮已从浮动毛玻璃胶囊改为扁平集成风格，更贴合系统原生观感。
+- 修复时间线与时段摘要中时间轴样式不统一的问题：标记尺寸、阴影、轨道渐变和暗色模式已全部对齐。
+- 修复 Linux KDE Wayland 下使用 sudo 运行时截图全黑的问题：启动时自动从原用户进程恢复 Wayland/DBus 环境变量，sudo 和非 sudo 均可正常截图和追踪窗口。
+- 修复拖拽 PDF 等文件到窗口时应用被替换为文件预览器的问题：已全局拦截文件拖放导航。
+- 修复 Windows 开机自启动"静默驻留"仍然弹出窗口的问题：增加诊断日志和 single_instance 二次自启动防护。
+- 修复 Timeline 每次截图事件过度清除全部缓存的问题：改为仅清除概览缓存，保留日报和其他日期的时间线缓存。
+- 修复自动日报生成无并发保护导致重复 AI 调用的问题：增加互斥标志防止生成未完成时重复触发。
+- 修复数据目录迁移时 raw copy 导致 SQLite 数据库损坏的问题：恢复使用安全的 backup_to() 接口（含 WAL checkpoint）。
+- 修复 Settings 存储回调缺少错误处理导致 unhandled rejection 的问题：补齐 try/catch。
+- 修复 config.json 中 screenshot_interval 设为 0 或 1 导致持续截图、CPU 飙高的问题：增加 5-600 秒范围校验。
+- 修复合并路径 OCR 哈希去重使用 static 变量导致跨活动污染的问题：改为循环局部 Arc 共享。
+- 修复云截图采样超过 5 张上限导致额外 AI token 消耗的问题：增加硬性 break 上限。
+- 修复待办提取标题包含 "TODO:" 等前缀的问题：改用正确的正则捕获组。
+- 修复意图分类 fallback 分数（80）高于具体匹配（52-70）的问题：修正基础分叠加逻辑。
+- 修复内存搜索全表扫描导致大数据量时变慢的问题：增加 LIKE WHERE 条件做初步过滤。
+- 修复简体中文界面下助手引用类型显示原始 key 名的问题：补齐 zh-CN ask.referenceTypes 翻译。
+
 ## [1.0.36] - 2026-04-10
 
 ### 修复
