@@ -550,7 +550,7 @@
       if (isToday && !document.hidden) {
         const newActivity = event.payload;
         activities = upsertTimelineActivity(activities, newActivity);
-        cache.clear();
+        cache.invalidate('overview');
       }
     });
   });

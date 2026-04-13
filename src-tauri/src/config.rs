@@ -566,6 +566,7 @@ impl AppConfig {
         self.migrate_legacy_config();
         normalize_app_category_rules(&mut self.app_category_rules);
         normalize_website_semantic_rules(&mut self.website_semantic_rules);
+        self.screenshot_interval = normalize_screenshot_interval(self.screenshot_interval);
         self.avatar_scale = normalize_avatar_scale(self.avatar_scale);
         self.avatar_opacity = normalize_avatar_opacity(self.avatar_opacity);
         self.break_reminder_interval_minutes =
@@ -798,6 +799,11 @@ fn normalize_break_reminder_interval_minutes(value: u64) -> u64 {
         30 | 45 | 50 | 60 | 90 | 120 => value,
         _ => default_break_reminder_interval_minutes(),
     }
+}
+
+/// 截屏间隔最低 5 秒，防止配置值过小导致 CPU/磁盘占用过高
+fn normalize_screenshot_interval(value: u64) -> u64 {
+    value.clamp(5, 600)
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {

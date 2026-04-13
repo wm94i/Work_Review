@@ -4168,19 +4168,32 @@ pub async fn change_data_dir(
             .unwrap_or_else(|_| requested_path.clone())
     };
 
-    let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    // 先短暂获取锁，读取必要信息后立即释放
+    let (config, current_db_path) = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        (
+            state.config.clone(),
+            state.data_dir.join("workreview.db"),
+        )
+    };
+
+    // 重 I/O 在锁外执行，不阻塞截图循环和其他命令
     let replaced_existing_data = ensure_target_dir_ready(&target_dir)?;
-    let config = state.config.clone();
-
     let copied_files = copy_managed_data_without_live_db(&current_dir, &target_dir)?;
-    state
-        .database
-        .backup_to(&target_dir.join("workreview.db"))?;
-
+    {
+        let source_db = current_dir.join("workreview.db");
+        if source_db.exists() {
+            let mut source = std::fs::File::open(&source_db)?;
+            let mut dest = std::fs::File::create(target_dir.join("workreview.db"))?;
+            std::io::copy(&mut source, &mut dest)?;
+        }
+    }
     let config_path = target_dir.join("config.json");
     config.save(&config_path)?;
     crate::save_data_dir_preference(&target_dir)?;
 
+    // 重新获取锁，仅做轻量状态更新
+    let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.database = Database::new(&target_dir.join("workreview.db"))?;
     state.privacy_filter = PrivacyFilter::from_config(&config.privacy);
     state.screenshot_service = ScreenshotService::new(&target_dir, &config.storage);

@@ -162,22 +162,30 @@
 
   // 清理缓存回调
   async function handleClearCache() {
-    const [latestStats, latestDataDir] = await Promise.all([
-      invoke('get_storage_stats'),
-      invoke('get_data_dir'),
-    ]);
-    storageStats = latestStats;
-    dataDir = latestDataDir;
+    try {
+      const [latestStats, latestDataDir] = await Promise.all([
+        invoke('get_storage_stats'),
+        invoke('get_data_dir'),
+      ]);
+      storageStats = latestStats;
+      dataDir = latestDataDir;
+    } catch (e) {
+      console.error('刷新存储状态失败:', e);
+    }
   }
 
   async function handleDataDirChanged() {
-    const [latestStats, latestDataDir] = await Promise.all([
-      invoke('get_storage_stats'),
-      invoke('get_data_dir'),
-    ]);
-    storageStats = latestStats;
-    dataDir = latestDataDir;
-    cache.clear();
+    try {
+      const [latestStats, latestDataDir] = await Promise.all([
+        invoke('get_storage_stats'),
+        invoke('get_data_dir'),
+      ]);
+      storageStats = latestStats;
+      dataDir = latestDataDir;
+      cache.clear();
+    } catch (e) {
+      console.error('切换数据目录后刷新状态失败:', e);
+    }
   }
 
   onMount(() => {

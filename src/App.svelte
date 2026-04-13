@@ -286,7 +286,9 @@
 
       // 日报自动生成检测：每分钟检查一次
       let lastAutoGenDate = null;  // 防止同一天重复触发
+      let autoGenRunning = false;  // 防止并发生成
       const autoReportTimer = setInterval(async () => {
+        if (autoGenRunning) return;  // 上一轮还没完成，跳过
         const now = new Date();
         const currentHour = now.getHours();
         const currentMinute = now.getMinutes();
@@ -303,10 +305,15 @@
             const existingReport = await invoke('get_saved_report', { date: today });
             if (!existingReport) {
               console.log('工作结束时间到达，自动生成日报...');
-              await invoke('generate_report', { date: today, force: false, locale: currentLocale });
-              cache.invalidate('report', today);
-              lastAutoGenDate = today;
-              console.log('日报自动生成完成');
+              autoGenRunning = true;
+              try {
+                await invoke('generate_report', { date: today, force: false, locale: currentLocale });
+                cache.invalidate('report', today);
+                lastAutoGenDate = today;
+                console.log('日报自动生成完成');
+              } finally {
+                autoGenRunning = false;
+              }
             } else {
               lastAutoGenDate = today;  // 已有日报，标记今天不再触发
             }

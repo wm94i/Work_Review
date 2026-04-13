@@ -1358,6 +1358,9 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
     // OCR 并发限制：最多 2 个 OCR 任务同时运行，防止任务堆积消耗内存
     let ocr_semaphore = Arc::new(tokio::sync::Semaphore::new(2));
 
+    // 合并路径的截图哈希去重：用 Arc 共享给异步任务，避免 static 跨活动污染
+    let merge_screenshot_hash = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
     // 锁屏检测器（无内部状态，复用同一实例避免重复分配）
     let screen_lock_monitor = screen_lock::ScreenLockMonitor::new();
     let mut last_screen_lock_check = std::time::Instant::now()
@@ -1973,12 +1976,12 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                         let should_delete_previous_capture = should_keep_latest_capture
                             && persisted_screenshot_path != previous_screenshot_path;
 
-                        use std::sync::atomic::{AtomicU64, Ordering};
-                        static MERGE_SCREENSHOT_HASH: AtomicU64 = AtomicU64::new(0);
-
                         let ocr_sem = ocr_semaphore.clone();
+                        let merge_hash = merge_screenshot_hash.clone();
 
                         tokio::spawn(async move {
+                            use std::sync::atomic::Ordering;
+
                             // 非阻塞获取 permit，满载时跳过 OCR 避免任务堆积
                             let _permit = match ocr_sem.try_acquire_owned() {
                                 Ok(p) => p,
@@ -2002,7 +2005,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                             )
                             .unwrap_or(0);
                             let last_hash =
-                                MERGE_SCREENSHOT_HASH.swap(current_hash, Ordering::Relaxed);
+                                merge_hash.swap(current_hash, Ordering::Relaxed);
 
                             let should_ocr = if last_hash != 0 {
                                 let similarity = screenshot::ScreenshotService::hash_similarity(
@@ -2688,6 +2691,11 @@ async fn main() {
     ));
     builder
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            // 如果第二个实例是自启动触发的，保持静默不弹窗
+            if argv.iter().any(|arg| arg == AUTOSTART_LAUNCH_ARG) {
+                log::info!("检测到重复自启动，保持静默 | 参数: {argv:?}");
+                return;
+            }
             // 当用户尝试打开第二个实例时，将焦点给到现有窗口
             if let Err(e) = reveal_main_window(&app.clone(), None) {
                 log::warn!("恢复主窗口失败: {e}");
@@ -2736,7 +2744,15 @@ async fn main() {
             let state = app.state::<Arc<Mutex<AppState>>>();
             let should_hide_main_window = {
                 let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
-                should_hide_main_window_on_setup(&state_guard.config, &launch_args)
+                let result = should_hide_main_window_on_setup(&state_guard.config, &launch_args);
+                log::info!(
+                    "启动窗口决策: show={} | auto_start={} auto_start_silent={} args={:?}",
+                    !result,
+                    state_guard.config.auto_start,
+                    state_guard.config.auto_start_silent,
+                    launch_args,
+                );
+                result
             };
 
             if should_hide_main_window {

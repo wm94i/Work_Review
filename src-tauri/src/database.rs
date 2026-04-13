@@ -1876,14 +1876,17 @@ impl Database {
         })?;
 
         let target = crate::monitor::normalize_display_app_name(app_name).to_lowercase();
+        // 用 LIKE 做初步过滤，减少加载量；精确匹配仍在 Rust 侧完成
+        let like_pattern = format!("%{}%", app_name);
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, app_name, window_title, screenshot_path, ocr_text, category, duration, browser_url, executable_path, semantic_category, semantic_confidence
              FROM activities
+             WHERE app_name LIKE ?1
              ORDER BY timestamp ASC, id ASC",
         )?;
 
         let activities = stmt
-            .query_map([], |row| {
+            .query_map([&like_pattern], |row| {
                 Ok(Activity {
                     id: Some(row.get(0)?),
                     timestamp: row.get(1)?,
@@ -1921,12 +1924,13 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, app_name, window_title, screenshot_path, ocr_text, category, duration, browser_url, executable_path, semantic_category, semantic_confidence
              FROM activities
-             WHERE browser_url IS NOT NULL AND browser_url != ''
+             WHERE browser_url IS NOT NULL AND browser_url != '' AND browser_url LIKE ?1
              ORDER BY timestamp ASC, id ASC",
         )?;
 
+        let like_pattern = format!("%{}%", &target);
         let activities = stmt
-            .query_map([], |row| {
+            .query_map([&like_pattern], |row| {
                 Ok(Activity {
                     id: Some(row.get(0)?),
                     timestamp: row.get(1)?,
