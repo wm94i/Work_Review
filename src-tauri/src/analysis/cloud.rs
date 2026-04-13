@@ -199,7 +199,10 @@ impl Analyzer for CloudAnalyzer {
 
         let mut insights = Vec::new();
         for (index, activity) in activities.iter().enumerate() {
-            if index % step != 0 && insights.len() >= sample_size {
+            if insights.len() >= sample_size {
+                break;
+            }
+            if index % step != 0 {
                 continue;
             }
 

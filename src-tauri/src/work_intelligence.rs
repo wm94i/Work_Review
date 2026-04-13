@@ -702,7 +702,7 @@ fn classify_session(
         .find(|item| item.score > 0)
         .unwrap_or_else(|| IntentMatch {
             label: "通用工作".to_string(),
-            score: 40,
+            score: 0,
             evidence: vec!["未命中明确意图信号，按通用工作处理".to_string()],
         });
 
@@ -764,7 +764,8 @@ fn build_todo_sources(activity: &Activity) -> Vec<(String, i32, String)> {
         }
 
         for capture in explicit_regex.captures_iter(&text) {
-            if let Some(matched) = capture.get(0) {
+            // capture.get(2) 取实际待办文本，跳过 "TODO:" / "待办：" 等前缀
+            if let Some(matched) = capture.get(2).or_else(|| capture.get(0)) {
                 candidates.push((
                     truncate_text(&clean_todo_text(matched.as_str()), TODO_TEXT_LIMIT),
                     82,

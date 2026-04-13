@@ -469,6 +469,11 @@ const MESSAGES = {
       thinking: '正在整理...',
       sending: '正在发送',
       sendMessage: '发送消息',
+      referenceTypes: {
+        activity: '活动记录',
+        hourly_summary: '时段摘要',
+        daily_report: '日报',
+      },
     },
     report: {
       todayReport: '今日日报',
