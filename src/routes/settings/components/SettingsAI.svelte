@@ -3,25 +3,25 @@
   import { invoke } from '@tauri-apps/api/core';
   import { aiStore } from '$lib/stores/ai.js';
   import { locale, t } from '$lib/i18n/index.js';
-  
+
   export let config;
   export let providers = [];
-  
+
   const dispatch = createEventDispatcher();
   $: currentLocale = $locale;
   let aiModes = [];
   let localizedProviders = [];
-  
+
   // 日报生成模式：基础模板 vs AI 增强
   const aiModeConfigs = [
-    { 
-      value: 'local', 
+    {
+      value: 'local',
       labelKey: 'settingsAI.modeLocal',
       descriptionKey: 'settingsAI.modeLocalDesc',
       requiresText: false
     },
-    { 
-      value: 'summary', 
+    {
+      value: 'summary',
       labelKey: 'settingsAI.modeSummary',
       descriptionKey: 'settingsAI.modeSummaryDesc',
       requiresText: true
@@ -125,12 +125,12 @@
   let textTestMessage = '';
   let textConnectionVerified = false;
   let showApiKey = false;
-  let ollamaModels = [];
-  let ollamaModelsLoading = false;
-  let ollamaModelsError = '';
-  let ollamaModelsHint = '';
-  let selectedOllamaModel = '';
-  
+  let fetchedModels = [];
+  let modelsLoading = false;
+  let modelsError = '';
+  let modelsHint = '';
+  let selectedModel = '';
+
   const unsubscribe = aiStore.subscribe(state => {
     textTestStatus = state.textTestStatus;
     textTestMessage = state.textTestMessage;
@@ -144,8 +144,7 @@
   // 当前提供商
   $: currentProvider = localizedProviders.find(p => p.id === config?.text_model?.provider) || localizedProviders[0];
   $: requiresApiKey = currentProvider?.requires_api_key ?? true;
-  $: isOllamaProvider = config?.text_model?.provider === 'ollama';
-  $: selectedOllamaModel = ollamaModels.includes(config?.text_model?.model || '')
+  $: selectedModel = fetchedModels.includes(config?.text_model?.model || '')
     ? config.text_model.model
     : '';
 
@@ -167,7 +166,7 @@
 
   function handleProviderChange(e) {
     const providerId = e.target.value;
-    
+
     // 缓存当前 provider 配置
     if (config.text_model.provider) {
       providerConfigs[config.text_model.provider] = {
@@ -176,23 +175,18 @@
         api_key: config.text_model.api_key || ''
       };
     }
-    
+
     // 恢复缓存或使用默认值
     const defaults = getProviderDefaults(providerId);
     const cached = providerConfigs[providerId];
-    
+
     config.text_model.provider = providerId;
     config.text_model.endpoint = cached?.endpoint || defaults.endpoint;
     config.text_model.model = cached?.model || defaults.model;
     config.text_model.api_key = cached?.api_key || '';
-    
+
     aiStore.reset();
-    if (providerId === 'ollama') {
-      refreshOllamaModels();
-    } else {
-      ollamaModels = [];
-      ollamaModelsError = '';
-    }
+    refreshModels();
     dispatch('change', config);
   }
 
@@ -200,7 +194,7 @@
     // 阻止派发含有未验证文本模型的配置
     if (config.ai_mode === 'summary' && !isTextModelConfigured) {
       aiStore.setError(t('settingsAI.saveRequiresVerifiedModel'));
-      return; 
+      return;
     }
     dispatch('change', config);
   }
@@ -212,7 +206,7 @@
   async function testTextModel() {
     aiStore.startTesting();
     try {
-      const result = await invoke('test_model', { 
+      const result = await invoke('test_model', {
         modelConfig: {
           provider: config.text_model.provider,
           endpoint: config.text_model.endpoint,
@@ -244,65 +238,66 @@
     }
   }
 
-  function getOllamaModelOptions() {
-    return ollamaModels;
-  }
-
-  function getOllamaFallbackOptionLabel() {
+  function getModelFallbackOptionLabel() {
     const currentModel = config?.text_model?.model?.trim();
     if (currentModel) {
-      return ollamaModelsLoading
+      return modelsLoading
         ? t('settingsAI.currentModelLoading', { model: currentModel })
         : t('settingsAI.currentModelMissing', { model: currentModel });
     }
-    return ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.noModels');
+    return modelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.noModels');
   }
 
-  function hasManualOllamaModelOutsideList() {
+  function hasManualModelOutsideList() {
     const currentModel = config?.text_model?.model?.trim();
     return !!(
       currentModel &&
-      ollamaModels.length > 0 &&
-      !ollamaModels.includes(currentModel)
+      fetchedModels.length > 0 &&
+      !fetchedModels.includes(currentModel)
     );
   }
 
-  function handleOllamaModelSelect() {
-    if (!selectedOllamaModel) return;
-    config.text_model.model = selectedOllamaModel;
+  function handleModelSelect() {
+    if (!selectedModel) return;
+    config.text_model.model = selectedModel;
     handleChange();
   }
 
-  async function refreshOllamaModels() {
-    if (!isOllamaProvider || !config?.text_model?.endpoint) return;
+  async function refreshModels() {
+    if (!config?.text_model?.endpoint) return;
 
-    ollamaModelsLoading = true;
-    ollamaModelsError = '';
-    ollamaModelsHint = '';
+    // 需要 API Key 的提供商必须先填写密钥
+    if (requiresApiKey && !config.text_model.api_key) return;
+
+    modelsLoading = true;
+    modelsError = '';
+    modelsHint = '';
     try {
-      const models = await invoke('get_ollama_models', {
+      const models = await invoke('fetch_models', {
+        provider: config.text_model.provider,
         endpoint: config.text_model.endpoint,
+        apiKey: config.text_model.api_key || null,
       });
-      ollamaModels = Array.isArray(models) ? models : [];
-      ollamaModelsHint = ollamaModels.length > 0
-        ? t('settingsAI.loadedModels', { count: ollamaModels.length })
+      fetchedModels = Array.isArray(models) ? models : [];
+      modelsHint = fetchedModels.length > 0
+        ? t('settingsAI.loadedModels', { count: fetchedModels.length })
         : t('settingsAI.noModelsFound');
       if (
-        ollamaModels.length > 0 &&
+        fetchedModels.length > 0 &&
         (
           !config.text_model.model ||
-          !ollamaModels.includes(config.text_model.model)
+          !fetchedModels.includes(config.text_model.model)
         )
       ) {
-        config.text_model.model = ollamaModels[0];
+        config.text_model.model = fetchedModels[0];
         dispatch('change', config);
       }
     } catch (e) {
-      ollamaModels = [];
-      ollamaModelsError = e.toString();
-      ollamaModelsHint = '';
+      fetchedModels = [];
+      modelsError = e.toString();
+      modelsHint = '';
     } finally {
-      ollamaModelsLoading = false;
+      modelsLoading = false;
     }
   }
 
@@ -315,19 +310,20 @@
   // 挂载时只在配置变化时自动测试
   onMount(async () => {
     await new Promise(r => setTimeout(r, 200));
-    
+
     const currentHash = getConfigHash();
     let lastHash = null;
     const unsub = aiStore.subscribe(s => { lastHash = s.lastTestedConfigHash; });
     unsub();
-    
+
     if (hasTextModelConfig && currentHash !== lastHash) {
       aiStore.setConfigHash(currentHash);
       await testTextModel();
     }
 
-    if (isOllamaProvider && config?.text_model?.endpoint) {
-      await refreshOllamaModels();
+    // 自动获取模型列表
+    if (config?.text_model?.endpoint && (!requiresApiKey || config.text_model.api_key)) {
+      await refreshModels();
     }
   });
 
@@ -343,17 +339,17 @@
   <div class="flex gap-2">
     {#each aiModes as mode}
       {@const isSelected = config.ai_mode === mode.value}
-      <button 
+      <button
         type="button"
-        on:click={() => { 
+        on:click={() => {
           // 仅当切换需要文字模型且未配置或测试失败时，给提示并阻止向父组件发送 change（避免自动保存未验证状态）
           if (mode.requiresText && !isTextModelConfigured) {
             config.ai_mode = mode.value; // 允许 UI 切换展开面板
             aiStore.setError(t('settingsAI.switchRequiresVerifiedModel'));
             // 不触发 handleChange()，防止父组件认为配置已完备
           } else {
-            config.ai_mode = mode.value; 
-            handleChange(); 
+            config.ai_mode = mode.value;
+            handleChange();
           }
         }}
         class="flex-1 min-h-16 px-3 py-2.5 rounded-lg text-sm font-medium leading-none transition-all duration-150
@@ -388,16 +384,16 @@
           {/each}
         </select>
       </div>
-      
+
       <!-- 测试按钮紧跟提供商选择 -->
       <button
         on:click={testTextModel}
         disabled={textTestStatus === 'testing' || !hasTextModelConfig}
         class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all
-               {textTestStatus === 'success' 
-                 ? 'settings-action-success' 
-                 : textTestStatus === 'error' 
-                   ? 'settings-action-danger' 
+               {textTestStatus === 'success'
+                 ? 'settings-action-success'
+                 : textTestStatus === 'error'
+                   ? 'settings-action-danger'
                    : 'settings-action-secondary'}
                disabled:opacity-40 disabled:cursor-not-allowed"
       >
@@ -415,7 +411,7 @@
         {/if}
       </button>
     </div>
-    
+
     <!-- 测试结果消息 -->
     {#if textTestMessage}
       <div class="px-3 py-2 rounded-lg text-xs {textTestStatus === 'success' ? 'settings-tone-success' : 'settings-tone-danger'}">
@@ -478,81 +474,65 @@
       </div>
     {/if}
 
-    <!-- 模型名称 -->
+    <!-- 模型名称：所有提供商统一下拉 + 刷新 + 手动输入 -->
     <div>
       <div class="flex items-end gap-2">
         <div class="flex-1">
           <label for="ai-model" class="settings-label mb-1.5">{t('settingsAI.model')}</label>
-          {#if isOllamaProvider}
-            {#key `${selectedOllamaModel}|${config?.text_model?.model || ''}|${ollamaModels.join('|')}|${ollamaModelsLoading}`}
-              <select
-                id="ai-model"
-                bind:value={selectedOllamaModel}
-                on:change={handleOllamaModelSelect}
-                class="control-input"
-                disabled={ollamaModelsLoading || getOllamaModelOptions().length === 0}
-              >
-                {#if getOllamaModelOptions().length === 0}
-                    <option value="">
-                      {getOllamaFallbackOptionLabel()}
-                    </option>
-                {:else}
-                  {#if hasManualOllamaModelOutsideList()}
-                    <option value="" disabled>
-                      {t('settingsAI.manualModelMissing')}
-                    </option>
-                  {/if}
-                  {#each ollamaModels as model (model)}
-                    <option value={model}>{model}</option>
-                  {/each}
-                {/if}
-              </select>
-            {/key}
-          {:else}
-            <input
+          {#key `${selectedModel}|${config?.text_model?.model || ''}|${fetchedModels.join('|')}|${modelsLoading}`}
+            <select
               id="ai-model"
-              type="text"
-              bind:value={config.text_model.model}
-              on:change={handleChange}
+              bind:value={selectedModel}
+              on:change={handleModelSelect}
               class="control-input"
-              placeholder={currentProvider?.default_model || 'qwen2.5'}
-            />
-          {/if}
+              disabled={modelsLoading || fetchedModels.length === 0}
+            >
+              {#if fetchedModels.length === 0}
+                <option value="">
+                  {getModelFallbackOptionLabel()}
+                </option>
+              {:else}
+                {#if hasManualModelOutsideList()}
+                  <option value="" disabled>
+                    {t('settingsAI.manualModelMissing')}
+                  </option>
+                {/if}
+                {#each fetchedModels as model (model)}
+                  <option value={model}>{model}</option>
+                {/each}
+              {/if}
+            </select>
+          {/key}
         </div>
 
-        {#if isOllamaProvider}
-          <button
-            type="button"
-            on:click={refreshOllamaModels}
-            disabled={ollamaModelsLoading || !config.text_model.endpoint}
-            class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {ollamaModelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.refreshModels')}
-          </button>
-        {/if}
+        <button
+          type="button"
+          on:click={refreshModels}
+          disabled={modelsLoading || !config.text_model.endpoint || (requiresApiKey && !config.text_model.api_key)}
+          class="shrink-0 min-h-10 px-3 py-2 text-xs font-medium rounded-lg leading-none transition-all settings-action-secondary disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {modelsLoading ? t('settingsAI.refreshingModels') : t('settingsAI.refreshModels')}
+        </button>
       </div>
 
-      {#if isOllamaProvider}
-        <div class="mt-3">
-          <label for="ai-model-manual" class="settings-label mb-1.5">{t('settingsAI.manualModel')}</label>
-          <input
-            id="ai-model-manual"
-            type="text"
-            bind:value={config.text_model.model}
-            on:change={handleChange}
-            class="control-input"
-            placeholder={currentProvider?.default_model || 'qwen2.5'}
-          />
-        </div>
-        {#if ollamaModelsError}
-          <p class="settings-note text-rose-500 dark:text-rose-400">{ollamaModelsError}</p>
-        {:else if ollamaModelsHint}
-          <p class="settings-note">{t('settingsAI.modelHint', { hint: ollamaModelsHint })}</p>
-        {:else}
-          <p class="settings-note">{t('settingsAI.ollamaHint')}</p>
-        {/if}
-      {:else if currentProvider?.description}
-        <p class="settings-note">{currentProvider.description}</p>
+      <!-- 手动输入模型名称（所有提供商通用回退） -->
+      <div class="mt-3">
+        <label for="ai-model-manual" class="settings-label mb-1.5">{t('settingsAI.manualModel')}</label>
+        <input
+          id="ai-model-manual"
+          type="text"
+          bind:value={config.text_model.model}
+          on:change={handleChange}
+          class="control-input"
+          placeholder={currentProvider?.default_model || 'qwen2.5'}
+        />
+      </div>
+      {#if modelsError}
+        <p class="settings-note text-rose-500 dark:text-rose-400">{modelsError}</p>
+      {:else if modelsHint}
+        <p class="settings-note">{t('settingsAI.modelHint', { hint: modelsHint })}</p>
+      {:else}
+        <p class="settings-note">{t('settingsAI.fetchModelsHint')}</p>
       {/if}
     </div>
   </div>

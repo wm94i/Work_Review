@@ -949,7 +949,7 @@
 
   .timeline-rail {
     position: absolute;
-    left: calc(1.25rem + var(--timeline-anchor-width) - 0.875rem);
+    left: calc(1.25rem + var(--timeline-anchor-width) - 0.85rem);
     top: 1.25rem;
     bottom: 1.25rem;
     width: 2px;
@@ -1000,6 +1000,9 @@
   }
 
   .timeline-entry-marker {
+    position: absolute;
+    top: 0.95rem;
+    right: 0.05rem;
     width: 0.8rem;
     height: 0.8rem;
     border-radius: 999px;
@@ -1007,7 +1010,6 @@
     box-shadow:
       0 0 0 0.32rem rgba(255, 251, 235, 0.96),
       0 0 0 0.4rem rgba(31, 41, 55, 0.08);
-    flex-shrink: 0;
     transition:
       transform 180ms ease,
       box-shadow 180ms ease,
@@ -1572,6 +1574,7 @@
     }
 
     .timeline-entry-marker {
+      top: 0.8rem;
       width: 0.68rem;
       height: 0.68rem;
     }

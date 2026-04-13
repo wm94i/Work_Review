@@ -408,12 +408,11 @@
     <!-- 仅 Windows/Linux 平台显示自定义窗口控制按钮，macOS 使用原生控件 -->
     {#if platform && platform !== 'macos'}
     <!-- Windows 风格窗口控制按钮 (右上角) -->
-    <div class="app-shell-window-controls absolute right-0 top-0 flex items-stretch h-7">
+    <div class="app-shell-window-controls absolute right-0 top-0 flex items-stretch h-7" style="-webkit-app-region: no-drag;">
       <!-- Minimize -->
       <button
         on:click={minimizeWindow}
         class="app-shell-window-btn"
-        style="-webkit-app-region: no-drag;"
         title="最小化"
       >
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -425,7 +424,6 @@
       <button
         on:click={maximizeWindow}
         class="app-shell-window-btn"
-        style="-webkit-app-region: no-drag;"
         title="最大化"
       >
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -437,7 +435,6 @@
       <button
         on:click={closeWindow}
         class="app-shell-window-btn app-shell-window-btn-close"
-        style="-webkit-app-region: no-drag;"
         title="关闭"
       >
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

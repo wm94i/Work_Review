@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.38] - 2026-04-13
+
+### 新增
+- 所有 AI 提供商（OpenAI、DeepSeek、SiliconFlow、Qwen、Zhipu、Moonshot、Doubao、MiniMax、Gemini、Claude）支持获取模型列表：点击刷新按钮即可下拉选择可用模型，不再需要手动输入模型名称。
+
+### 修复
+- 修复 Windows 自定义窗口控件（最小化/最大化/关闭）外层包裹盒子的问题：去除容器边框和背景，按钮直接贴合窗口右上角。
+- 修复时间线中时间圆点与时段摘要圆点距离中线不一致的问题：改为绝对定位，两种圆点统一紧贴轨道线。
+
+## [1.0.37] - 2026-04-13
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [1.0.37] - 2026-04-13
 
 ### 修复

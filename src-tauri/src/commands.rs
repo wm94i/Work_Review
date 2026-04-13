@@ -3700,6 +3700,206 @@ pub async fn get_ollama_models(endpoint: String) -> Result<Vec<String>, AppError
     resolve_ollama_text_model_names(&client, &endpoint, &data).await
 }
 
+/// 从 OpenAI 兼容提供商获取模型列表
+async fn fetch_openai_compatible_models(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<Vec<String>, AppError> {
+    let url = format!("{endpoint}/models");
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await;
+
+    let response = match response {
+        Ok(r) if r.status().is_success() => r,
+        Ok(_) => {
+            // 端点可能不含 /v1 前缀，重试 {endpoint}/v1/models
+            let retry_url = format!("{endpoint}/v1/models");
+            let retry = client
+                .get(&retry_url)
+                .header("Authorization", format!("Bearer {api_key}"))
+                .send()
+                .await
+                .map_err(|e| AppError::Analysis(format!("无法获取模型列表: {e}")))?;
+            if !retry.status().is_success() {
+                return Err(AppError::Analysis(format!(
+                    "API 返回错误: {}",
+                    retry.status()
+                )));
+            }
+            retry
+        }
+        Err(e) => return Err(AppError::Analysis(format!("请求失败: {e}"))),
+    };
+
+    let data: serde_json::Value = response.json().await?;
+    let models = data["data"]
+        .as_array()
+        .ok_or_else(|| AppError::Analysis("无法解析模型列表（缺少 data 字段）".to_string()))?;
+
+    let mut names: Vec<String> = models
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// 从 Google Gemini 获取模型列表
+async fn fetch_gemini_models(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<Vec<String>, AppError> {
+    let url = format!("{endpoint}/models?key={api_key}");
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| AppError::Analysis(format!("无法连接到 Gemini 服务: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(AppError::Analysis(format!(
+            "Gemini API 错误 ({status}): {error_text}"
+        )));
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    let models = data["models"]
+        .as_array()
+        .ok_or_else(|| AppError::Analysis("无法解析 Gemini 模型列表".to_string()))?;
+
+    let mut names: Vec<String> = models
+        .iter()
+        // 仅保留支持 generateContent 的模型（排除 embedding 等专用模型）
+        .filter(|m| {
+            m["supportedGenerationMethods"]
+                .as_array()
+                .map(|methods| {
+                    methods
+                        .iter()
+                        .any(|m| m.as_str() == Some("generateContent"))
+                })
+                .unwrap_or(true)
+        })
+        .filter_map(|m| {
+            m["name"]
+                .as_str()
+                .map(|name| name.strip_prefix("models/").unwrap_or(name).to_string())
+        })
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// 从 Anthropic Claude 获取模型列表
+async fn fetch_claude_models(
+    client: &reqwest::Client,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<Vec<String>, AppError> {
+    let url = format!("{endpoint}/models");
+    let response = client
+        .get(&url)
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .await
+        .map_err(|e| AppError::Analysis(format!("无法连接到 Claude 服务: {e}")))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(AppError::Analysis(format!(
+            "Claude API 错误 ({status}): {error_text}"
+        )));
+    }
+
+    let data: serde_json::Value = response.json().await?;
+    let models = data["data"]
+        .as_array()
+        .ok_or_else(|| AppError::Analysis("无法解析 Claude 模型列表".to_string()))?;
+
+    let mut names: Vec<String> = models
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
+/// 通用获取模型列表（支持所有提供商）
+#[tauri::command]
+pub async fn fetch_models(
+    provider: String,
+    endpoint: String,
+    api_key: Option<String>,
+) -> Result<Vec<String>, AppError> {
+    let endpoint = endpoint.trim().trim_end_matches('/').to_string();
+    if endpoint.is_empty() {
+        return Err(AppError::Config("API 地址不能为空".to_string()));
+    }
+
+    let provider: crate::config::AiProvider =
+        serde_json::from_value(serde_json::Value::String(provider))
+            .map_err(|_| AppError::Config("未知的 AI 提供商类型".to_string()))?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    match provider {
+        crate::config::AiProvider::Ollama => {
+            let response = client
+                .get(format!("{endpoint}/api/tags"))
+                .send()
+                .await
+                .map_err(|e| AppError::Analysis(format!("无法连接到 Ollama 服务: {e}")))?;
+            if !response.status().is_success() {
+                return Err(AppError::Analysis(format!(
+                    "Ollama 服务返回错误: {}",
+                    response.status()
+                )));
+            }
+            let data: serde_json::Value = response.json().await?;
+            resolve_ollama_text_model_names(&client, &endpoint, &data).await
+        }
+        crate::config::AiProvider::Gemini => {
+            let api_key = api_key
+                .filter(|k| !k.is_empty())
+                .ok_or(AppError::Config("Gemini 需要 API Key".to_string()))?;
+            fetch_gemini_models(&client, &endpoint, &api_key).await
+        }
+        crate::config::AiProvider::Claude => {
+            let api_key = api_key
+                .filter(|k| !k.is_empty())
+                .ok_or(AppError::Config("Claude 需要 API Key".to_string()))?;
+            fetch_claude_models(&client, &endpoint, &api_key).await
+        }
+        _ if provider.is_openai_compatible() => {
+            let api_key = api_key
+                .filter(|k| !k.is_empty())
+                .ok_or(AppError::Config("需要 API Key".to_string()))?;
+            fetch_openai_compatible_models(&client, &endpoint, &api_key).await
+        }
+        _ => Err(AppError::Config("不支持的提供商类型".to_string())),
+    }
+}
+
 /// 获取支持的 AI 提供商列表
 #[tauri::command]
 pub async fn get_ai_providers() -> Result<Vec<serde_json::Value>, AppError> {

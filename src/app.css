@@ -187,26 +187,25 @@
 }
 
 .app-shell-window-controls {
-  align-items: center;
+  align-items: stretch;
   gap: 0;
-  height: auto;
-  margin-top: 0.2rem;
-  margin-right: 0.35rem;
-  padding: 0.12rem 0.15rem;
-  border-radius: 0.55rem;
-  border: 1px solid rgba(226, 232, 240, 0.56);
-  background: rgba(248, 250, 252, 0.48);
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  border: none;
+  background: transparent;
   box-shadow: none;
   backdrop-filter: none;
 }
 
 .app-shell-window-btn {
-  width: 2.2rem;
-  height: 1.65rem;
+  width: 2.8rem;
+  height: 1.75rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.4rem;
+  border-radius: 0;
   color: #64748b;
   transition:
     background-color 160ms ease,
@@ -214,18 +213,18 @@
 }
 
 .app-shell-window-btn svg {
-  width: 0.74rem;
-  height: 0.74rem;
+  width: 0.68rem;
+  height: 0.68rem;
 }
 
 .app-shell-window-btn:hover {
-  background: rgba(226, 232, 240, 0.52);
+  background: rgba(0, 0, 0, 0.06);
   color: #1e293b;
 }
 
 .app-shell-window-btn:focus-visible {
   outline: 2px solid rgba(99, 102, 241, 0.42);
-  outline-offset: 1px;
+  outline-offset: -2px;
 }
 
 .app-shell-window-btn-close:hover {
@@ -259,8 +258,8 @@
 }
 
 .dark .app-shell-window-controls {
-  border-color: rgba(71, 85, 105, 0.4);
-  background: rgba(15, 23, 42, 0.48);
+  border: none;
+  background: transparent;
   box-shadow: none;
 }
 
@@ -269,7 +268,7 @@
 }
 
 .dark .app-shell-window-btn:hover {
-  background: rgba(51, 65, 85, 0.84);
+  background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
 }
 
