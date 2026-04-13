@@ -38,51 +38,50 @@ test('日报导出目录应从 AI 设置移到存储设置', async () => {
   assert.match(storageSource, /settingsStorage\.modeAllDesc/);
 });
 
-test('Ollama 提供商应支持获取模型列表并保留手动输入回退', async () => {
+test('所有提供商应支持获取模型列表并保留手动输入回退', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /invoke\('get_ollama_models'/);
-  assert.match(source, /refreshOllamaModels/);
-  assert.match(source, /ollamaModels/);
-  assert.match(source, /provider === 'ollama'/);
+  assert.match(source, /invoke\('fetch_models'/);
+  assert.match(source, /refreshModels/);
+  assert.match(source, /fetchedModels/);
   assert.match(source, /<select/);
   assert.match(source, /settingsAI\.manualModel/);
   assert.match(source, /settingsAI\.refreshModels/);
 });
 
-test('Ollama 刷新模型列表后应给出反馈并在当前模型失效时自动回填可用模型', async () => {
+test('刷新模型列表后应给出反馈并在当前模型失效时自动回填可用模型', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /!ollamaModels.includes\(config\.text_model\.model\)/);
+  assert.match(source, /!fetchedModels\.includes\(config\.text_model\.model\)/);
   assert.match(source, /settingsAI\.loadedModels/);
 });
 
-test('Ollama 模型列表为空时应保留当前模型值，避免下拉框显示空白', async () => {
+test('模型列表为空时应保留当前模型值，避免下拉框显示空白', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.match(source, /let selectedOllamaModel = '';/);
-  assert.match(source, /function getOllamaFallbackOptionLabel\(\)/);
+  assert.match(source, /let selectedModel = '';/);
+  assert.match(source, /function getModelFallbackOptionLabel\(\)/);
   assert.match(source, /settingsAI\.currentModelLoading/);
   assert.match(source, /settingsAI\.currentModelMissing/);
-  assert.match(source, /\{getOllamaFallbackOptionLabel\(\)\}/);
+  assert.match(source, /\{getModelFallbackOptionLabel\(\)\}/);
 });
 
-test('Ollama 下拉列表应只展示实际返回的模型，并明确区分手动输入值', async () => {
+test('下拉列表应只展示实际返回的模型，并明确区分手动输入值', async () => {
   const source = await readFile(
     new URL('./components/SettingsAI.svelte', import.meta.url),
     'utf8'
   );
 
-  assert.doesNotMatch(source, /return \[config\.text_model\.model, \.\.\.ollamaModels\];/);
+  assert.doesNotMatch(source, /return \[config\.text_model\.model, \.\.\.fetchedModels\];/);
   assert.match(source, /settingsAI\.manualModelMissing/);
-  assert.match(source, /#each ollamaModels as model \(model\)/);
+  assert.match(source, /#each fetchedModels as model \(model\)/);
 });
