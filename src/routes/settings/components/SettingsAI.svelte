@@ -185,6 +185,13 @@
     config.text_model.model = cached?.model || defaults.model;
     config.text_model.api_key = cached?.api_key || '';
 
+    // 切换提供商时立即清空测试状态与提示，避免旧提供商结果残留到新提供商
+    textTestStatus = null;
+    textTestMessage = '';
+    textConnectionVerified = false;
+    modelsError = '';
+    modelsHint = '';
+    fetchedModels = [];
     aiStore.reset();
     refreshModels();
     dispatch('change', config);
@@ -264,14 +271,20 @@
   }
 
   async function refreshModels() {
-    if (!config?.text_model?.endpoint) return;
-
-    // 需要 API Key 的提供商必须先填写密钥
-    if (requiresApiKey && !config.text_model.api_key) return;
-
-    modelsLoading = true;
+    // 切换提供商时先清空旧提示，避免残留到新提供商
     modelsError = '';
     modelsHint = '';
+    fetchedModels = [];
+
+    if (!config?.text_model?.endpoint) return;
+
+    // 直接从 providers 列表检查当前提供商是否需要 API Key，
+    // 避免依赖响应式变量（切换提供商时 reactive 变量尚未更新）
+    const provider = providers.find(p => p.id === config.text_model.provider);
+    const needsApiKey = provider?.requires_api_key ?? true;
+    if (needsApiKey && !config.text_model.api_key) return;
+
+    modelsLoading = true;
     try {
       const models = await invoke('fetch_models', {
         provider: config.text_model.provider,
@@ -536,7 +549,7 @@
           bind:value={config.text_model.model}
           on:change={handleChange}
           class="control-input"
-          placeholder={currentProvider?.default_model || 'qwen2.5'}
+          placeholder={currentProvider?.default_model || 'qwen3'}
         />
       </div>
       {#if modelsError}
