@@ -1,6 +1,5 @@
 <script>
   import { onMount } from 'svelte';
-  import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -36,7 +35,6 @@
   let positionSaveTimer = null;
   let lastSavedPositionKey = null;
   let unsubscribeLocale = () => {};
-  let unlistenLocaleChanged = () => {};
   let handleVisibilityChange = null;
   let handleContextMenu = null;
   let handleKeydown = null;
@@ -265,12 +263,6 @@
         showBubble(event.payload);
       });
 
-      unlistenLocaleChanged = await listen('locale-changed', (event) => {
-        initializeLocale(event.payload);
-      }, {
-        target: { kind: 'WebviewWindow', label: appWindow.label }
-      });
-
       unlistenMoved = await nativeWindow.onMoved(({ payload: position }) => {
         scheduleAvatarPositionSave(position);
       });
@@ -285,7 +277,6 @@
       if (handleContextMenu) document.removeEventListener('contextmenu', handleContextMenu);
       if (handleKeydown) document.removeEventListener('keydown', handleKeydown, true);
       unsubscribeLocale();
-      unlistenLocaleChanged();
       unlistenState();
       unlistenBubble();
       unlistenMoved();
