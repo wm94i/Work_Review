@@ -3161,6 +3161,7 @@ fn get_active_window_linux_x11() -> Result<ActiveWindow> {
         browser_url,
         executable_path,
         window_bounds,
+        is_minimized: false,
     })
 }
 
