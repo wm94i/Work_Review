@@ -656,6 +656,9 @@
     unlisten = await listen('screenshot-taken', (event) => {
       if (isToday && !document.hidden) {
         const newActivity = event.payload;
+        if (newActivity?.screenshot_path) {
+          loadThumbnail(newActivity.screenshot_path);
+        }
         activities = upsertTimelineActivity(activities, newActivity);
         cache.invalidate('overview');
       }
