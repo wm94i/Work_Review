@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.39] - 2026-04-16
+
+### 新增
+- 引入 BongoCat 风格的桌面化身资源与预设注册能力，`原版标准` 预设已接入当前桌宠链路。
+- 补充第三方资源归属说明：README 与 `THIRD_PARTY_NOTICES.md` 现明确标注 BongoCat 上游项目与 MIT 许可来源。
+
+### 修复
+- 修复 Windows 下桌面化身无法稳定接收键盘与鼠标输入的问题，恢复 `原版标准` 预设的基础联动能力。
+- 修复 Windows 在“全部窗口最小化 / 回到桌面 / 系统瞬态窗口”场景下仍将空闲时长续记到上一应用的问题，减少待机时间被误算为工作时长。
+- 修复 Windows “启动时静默驻留”仍弹出主窗口的问题，校正自启动命令参数与隐藏启动行为。
+- 修复 macOS LaunchAgent 自启动缺少隐藏参数的问题，静默启动会显式携带 `--autostart --hidden`。
+- 下线尚未收口的 `键盘专注` 与 `极简办公` 预设，历史配置会自动回退到 `原版标准`，避免出现未完成交互带来的误导。
+- 修复时间线实时更新时缩略图预热不及时的问题。
+
+### 说明
+- `桌面化身 Beta` 仍处于持续完善阶段，本次版本只将已收口的预设与交互链路纳入正式说明，未完成部分会继续迭代。
+
 ## [1.0.38] - 2026-04-14
 
 ### 新增

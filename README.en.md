@@ -70,7 +70,7 @@ Work Review is closer to a personal work-trace system:
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
 | Daily report | Generates structured reports with history view, hourly activity summaries, Markdown export, and locale-aware report switching |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
-| Desktop Avatar Beta | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating |
+| Desktop Avatar Beta (In Progress) | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating, while interaction details and preset behavior are still being refined |
 
 ### Privacy
 
@@ -107,6 +107,10 @@ The assistant answers directly from your local records and is useful for recap, 
 <img src="docs/桌宠.png" alt="Work Review Desktop Avatar" width="220" />
 
 The desktop avatar floats on the desktop and gives lightweight state feedback instead of acting as a full information panel.
+
+- Supports idle, working, reading, meeting, music, video, generating, and break states
+- Supports avatar size and cat-body opacity adjustments
+- Still in `Beta`; interaction flow, preset behavior, expressions, and visual details are still being refined
 
 ---
 
@@ -232,6 +236,10 @@ src-tauri/src/        Rust backend (monitoring, database, analysis, privacy, upd
 
 - [CHANGELOG.md](CHANGELOG.md)
 - [docs/WINDOWS_OCR.md](docs/WINDOWS_OCR.md)
+
+## Acknowledgements
+
+- Desktop Avatar uses BongoCat interaction resources and some visual assets adapted from [ayangweb/BongoCat](https://github.com/ayangweb/BongoCat), which is released under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License
 
