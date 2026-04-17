@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.40] - 2026-04-17
+
+### 修复
+- 修复 macOS 在部分前台窗口场景下更容易选错时间线截图目标屏幕的问题：前台窗口位置与尺寸现直接参与截图目标判定。
+- 修复同一时间线活动在后续合并时详情截图被新截图覆盖的问题：合并记录时保留首张归档截图路径，避免历史截图漂移。
+- 修复时间线合并路径中仅用于 OCR 的新截图在任务完成后仍残留的问题：OCR 完成后会清理临时截图，减少无效归档。
+- 修复时间线详情页“高清图”实际返回缩略图的问题：现直接返回归档原始 JPG，截图内容判断更准确。
+
 ## [1.0.39] - 2026-04-16
 
 ### 新增
