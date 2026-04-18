@@ -2652,6 +2652,15 @@ async fn main() {
         } else {
             log::info!("✅ 辅助功能权限已授权");
         }
+
+        // 3. 输入监控权限（桌宠键鼠联动必需）
+        if config.avatar_enabled && !screenshot::has_input_monitoring_permission() {
+            log::warn!("⚠️  输入监控权限未授权，正在请求...");
+            log::warn!("   请在「系统设置 → 隐私与安全性 → 输入监控」中授权 Work Review");
+            screenshot::request_input_monitoring_permission();
+        } else if config.avatar_enabled {
+            log::info!("✅ 输入监控权限已授权");
+        }
     }
 
     // 初始化存储管理器

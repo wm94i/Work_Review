@@ -35,6 +35,7 @@
   let avatarToggleUi;
   let runtimePlatform = '';
   let linuxSessionSupport = null;
+  let permissionStatus = null;
   let gnomeExtensionInstalling = false;
 
   // === 背景图片 ===
@@ -68,6 +69,22 @@
     : linuxSessionSupport?.avatarInputSupportLevel === 'mouse-only'
       ? 'settingsAppearance.avatarInputMouseOnlyHint'
       : 'settingsAppearance.avatarInputUnavailableHint';
+  $: macPermissionItems = permissionStatus
+    ? [
+        {
+          labelKey: 'settingsAppearance.avatarScreenCapturePermission',
+          granted: permissionStatus.screenCapture,
+        },
+        {
+          labelKey: 'settingsAppearance.avatarAccessibilityPermission',
+          granted: permissionStatus.accessibility,
+        },
+        {
+          labelKey: 'settingsAppearance.avatarInputMonitoringPermission',
+          granted: permissionStatus.inputMonitoring,
+        },
+      ]
+    : [];
   $: showGnomeExtensionInstaller = runtimePlatform === 'linux'
     && linuxSessionSupport?.desktopEnvironment === 'gnome'
     && !linuxSessionSupport?.gnomeAvatarExtensionEnabled;
@@ -75,8 +92,25 @@
     && linuxSessionSupport?.desktopEnvironment === 'gnome'
     && linuxSessionSupport?.gnomeAvatarExtensionNeedsRelogin;
 
-  async function refreshLinuxSessionSupport() {
+  function normalizePermissionStatus(rawStatus) {
+    if (!rawStatus || typeof rawStatus !== 'object') {
+      return null;
+    }
+
+    return {
+      screenCapture: Boolean(rawStatus.screen_capture),
+      accessibility: Boolean(rawStatus.accessibility),
+      inputMonitoring: Boolean(rawStatus.input_monitoring),
+      screenshotSupported: Boolean(rawStatus.screenshot_supported),
+      avatarInputSupported: Boolean(rawStatus.avatar_input_supported),
+      allGranted: Boolean(rawStatus.all_granted),
+    };
+  }
+
+  async function refreshPlatformSupport() {
     runtimePlatform = await invoke('get_runtime_platform');
+    permissionStatus = normalizePermissionStatus(await invoke('check_permissions'));
+
     if (runtimePlatform === 'linux') {
       linuxSessionSupport = await invoke('get_linux_session_support');
     } else {
@@ -91,10 +125,11 @@
     } catch (e) { /* ignore */ }
 
     try {
-      await refreshLinuxSessionSupport();
+      await refreshPlatformSupport();
     } catch (e) {
-      console.error('读取 Linux 桌宠联动能力失败:', e);
+      console.error('读取平台桌宠能力失败:', e);
       linuxSessionSupport = null;
+      permissionStatus = null;
     }
   });
 
@@ -305,7 +340,7 @@
         result.message,
         result.requiresRelogin ? 'warning' : result.enabled ? 'success' : 'info'
       );
-      await refreshLinuxSessionSupport();
+      await refreshPlatformSupport();
     } catch (e) {
       console.error('自动安装 GNOME 桌宠扩展失败:', e);
       showToast(t('settingsAppearance.avatarGnomeExtensionInstallFailed', { error: e }), 'error');
@@ -349,6 +384,15 @@
           </div>
           <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
             {linuxSessionSupport.sessionType} / {linuxSessionSupport.desktopEnvironment}
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-center justify-between gap-3 text-sm">
+          <div class="settings-subtle">{t('settingsAppearance.avatarScreenshotSupportTitle')}</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">
+            {linuxSessionSupport.screenshotSupported
+              ? t('settingsAppearance.avatarPermissionGranted')
+              : t('settingsAppearance.avatarPermissionMissing')}
           </div>
         </div>
 
@@ -408,6 +452,87 @@
             </div>
           {/if}
         {/if}
+      </div>
+    {/if}
+
+    {#if runtimePlatform === 'macos' && permissionStatus}
+      <div class="settings-block rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="settings-text">{t('settingsAppearance.avatarMacPermissionsTitle')}</div>
+            <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarMacPermissionsHint')}</div>
+          </div>
+          <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+            macOS
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-center justify-between gap-3 text-sm">
+          <div class="settings-subtle">{t('settingsAppearance.avatarScreenshotSupportTitle')}</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">
+            {permissionStatus.screenshotSupported
+              ? t('settingsAppearance.avatarPermissionGranted')
+              : t('settingsAppearance.avatarPermissionMissing')}
+          </div>
+        </div>
+
+        <div class="mt-2 flex items-center justify-between gap-3 text-sm">
+          <div class="settings-subtle">{t('settingsAppearance.avatarInputSupportTitle')}</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">
+            {permissionStatus.avatarInputSupported
+              ? t('settingsAppearance.avatarPermissionGranted')
+              : t('settingsAppearance.avatarPermissionMissing')}
+          </div>
+        </div>
+
+        {#each macPermissionItems as item}
+          <div class="mt-2 flex items-center justify-between gap-3 text-sm">
+            <div class="settings-subtle">{t(item.labelKey)}</div>
+            <div class="font-semibold text-slate-700 dark:text-slate-200">
+              {item.granted
+                ? t('settingsAppearance.avatarPermissionGranted')
+                : t('settingsAppearance.avatarPermissionMissing')}
+            </div>
+          </div>
+        {/each}
+
+        {#if !permissionStatus.allGranted}
+          <div class="mt-2 text-[12px] text-amber-700 dark:text-amber-300">
+            {t('settingsAppearance.avatarPermissionMissingHint')}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    {#if runtimePlatform === 'windows' && permissionStatus}
+      <div class="settings-block rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="settings-text">{t('settingsAppearance.avatarWindowsSupportTitle')}</div>
+            <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarWindowsSupportHint')}</div>
+          </div>
+          <div class="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+            Windows
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-center justify-between gap-3 text-sm">
+          <div class="settings-subtle">{t('settingsAppearance.avatarScreenshotSupportTitle')}</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">
+            {permissionStatus.screenshotSupported
+              ? t('settingsAppearance.avatarPermissionGranted')
+              : t('settingsAppearance.avatarPermissionMissing')}
+          </div>
+        </div>
+
+        <div class="mt-2 flex items-center justify-between gap-3 text-sm">
+          <div class="settings-subtle">{t('settingsAppearance.avatarInputSupportTitle')}</div>
+          <div class="font-semibold text-slate-700 dark:text-slate-200">
+            {permissionStatus.avatarInputSupported
+              ? t('settingsAppearance.avatarPermissionGranted')
+              : t('settingsAppearance.avatarPermissionMissing')}
+          </div>
+        </div>
       </div>
     {/if}
 

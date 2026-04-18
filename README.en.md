@@ -152,6 +152,20 @@ Download the latest build from [Releases](https://github.com/wm94i/Work_Review/r
 | Windows | `.exe` |
 | Linux (X11 / Mainstream Wayland) | `.deb` / `.AppImage` |
 
+- `Windows`: screenshot capture and avatar linkage do not require extra privacy permissions by default.
+- `Linux`: extra privacy permissions are usually not required, but screenshot capture and avatar linkage still depend on the current session type and provider/tool availability.
+- `macOS`: timeline screenshots require `Screen Recording`, while avatar keyboard and mouse linkage requires both `Accessibility` and `Input Monitoring`.
+
+### macOS Permissions
+
+Check these items under `System Settings > Privacy & Security`:
+
+- `Screen Recording`: required for timeline screenshots
+- `Accessibility`: required for reading the active window state
+- `Input Monitoring`: required for avatar keyboard and mouse linkage
+
+If screenshots disappear or the avatar stops reacting right after installing a new version, first confirm that these permissions still point to the current `Work Review.app`.
+
 ### Linux Dependencies
 
 Base dependencies:
@@ -238,6 +252,28 @@ src-tauri/src/        Rust backend (monitoring, database, analysis, privacy, upd
 
 - [CHANGELOG.md](CHANGELOG.md)
 - [docs/WINDOWS_OCR.md](docs/WINDOWS_OCR.md)
+
+## Community
+
+### WeChat Group
+
+<p align="center">
+  <img src="docs/group/vx.png" alt="Work Review WeChat group QR code" width="280" />
+</p>
+
+> If the group QR code has expired, follow the official account below and use the latest group entry there.
+
+### Official Account
+
+<p align="center">
+  <img src="docs/group/gzh.jpg" alt="Work Review official account QR code" width="280" />
+</p>
+
+> The official account is the fallback entry when the WeChat group QR code expires.
+
+### Telegram
+
+[![Telegram](https://img.shields.io/badge/Telegram-Join-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/+stYJLlkZbDYwM2Rl)
 
 ## Acknowledgements
 

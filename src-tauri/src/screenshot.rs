@@ -1,10 +1,9 @@
 use crate::config::{ScreenshotDisplayMode, StorageConfig};
 use crate::error::{AppError, Result};
+#[cfg(any(target_os = "linux", test))]
+use crate::linux_session::{LinuxDesktopEnvironment, LinuxDesktopSession};
 #[cfg(target_os = "linux")]
-use crate::linux_session::{
-    current_linux_desktop_environment, current_linux_desktop_session, LinuxDesktopEnvironment,
-    LinuxDesktopSession,
-};
+use crate::linux_session::{current_linux_desktop_environment, current_linux_desktop_session};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use image::DynamicImage;
@@ -22,6 +21,30 @@ use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
 };
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinuxScreenshotSupport {
+    pub provider: &'static str,
+    pub supported: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxScreenshotSupport {
+    const fn supported(provider: &'static str) -> Self {
+        Self {
+            provider,
+            supported: true,
+        }
+    }
+
+    const fn unsupported() -> Self {
+        Self {
+            provider: "none",
+            supported: false,
+        }
+    }
+}
 
 /// 检查 macOS 屏幕录制权限（不触发授权弹窗）
 /// 使用 CGPreflightScreenCaptureAccess (macOS 10.15+)
@@ -78,6 +101,30 @@ pub fn has_accessibility_permission(prompt: bool) -> bool {
     }
 }
 
+/// 检查 macOS 输入监控（Input Monitoring）权限
+/// 桌宠全局键盘鼠标联动需要此权限
+#[cfg(target_os = "macos")]
+pub fn has_input_monitoring_permission() -> bool {
+    extern "C" {
+        fn CGPreflightListenEventAccess() -> bool;
+    }
+
+    unsafe { CGPreflightListenEventAccess() }
+}
+
+/// 请求 macOS 输入监控（Input Monitoring）权限
+/// 会触发系统引导，用户需要在系统设置中手动授权
+#[cfg(target_os = "macos")]
+pub fn request_input_monitoring_permission() {
+    extern "C" {
+        fn CGRequestListenEventAccess() -> bool;
+    }
+
+    unsafe {
+        CGRequestListenEventAccess();
+    }
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn has_screen_capture_permission() -> bool {
     true
@@ -87,6 +134,14 @@ pub fn has_screen_capture_permission() -> bool {
 pub fn has_accessibility_permission(_prompt: bool) -> bool {
     true
 }
+
+#[cfg(not(target_os = "macos"))]
+pub fn has_input_monitoring_permission() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn request_input_monitoring_permission() {}
 
 /// 截屏结果
 #[derive(Debug, Clone)]
@@ -1176,6 +1231,106 @@ fn run_gnome_display_config_positions() -> Option<Vec<(i32, i32)>> {
 }
 
 #[cfg(any(target_os = "linux", test))]
+fn linux_screenshot_support_for_session(
+    session: LinuxDesktopSession,
+    desktop_environment: LinuxDesktopEnvironment,
+    scrot_available: bool,
+    import_available: bool,
+    maim_available: bool,
+    grim_available: bool,
+    gnome_screenshot_available: bool,
+    spectacle_available: bool,
+) -> (&'static str, bool) {
+    match session {
+        LinuxDesktopSession::Wayland => match desktop_environment {
+            LinuxDesktopEnvironment::Gnome => {
+                if gnome_screenshot_available {
+                    ("gnome-screenshot", true)
+                } else if grim_available {
+                    ("grim", true)
+                } else if spectacle_available {
+                    ("spectacle", true)
+                } else {
+                    ("none", false)
+                }
+            }
+            LinuxDesktopEnvironment::Kde => {
+                if spectacle_available {
+                    ("spectacle", true)
+                } else if grim_available {
+                    ("grim", true)
+                } else if gnome_screenshot_available {
+                    ("gnome-screenshot", true)
+                } else {
+                    ("none", false)
+                }
+            }
+            LinuxDesktopEnvironment::Hyprland
+            | LinuxDesktopEnvironment::Sway
+            | LinuxDesktopEnvironment::Unknown => {
+                if grim_available {
+                    ("grim", true)
+                } else if gnome_screenshot_available {
+                    ("gnome-screenshot", true)
+                } else if spectacle_available {
+                    ("spectacle", true)
+                } else {
+                    ("none", false)
+                }
+            }
+        },
+        LinuxDesktopSession::X11 | LinuxDesktopSession::Unknown => {
+            if scrot_available {
+                ("scrot", true)
+            } else if import_available {
+                ("import", true)
+            } else if maim_available {
+                ("maim", true)
+            } else {
+                ("none", false)
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_linux_command_available(command: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(std::env::split_paths)
+        .map(|dir| dir.join(command))
+        .any(|path| {
+            std::fs::metadata(&path)
+                .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        })
+}
+
+#[cfg(target_os = "linux")]
+pub fn current_linux_screenshot_support() -> LinuxScreenshotSupport {
+    let session = current_linux_desktop_session();
+    let desktop_environment = current_linux_desktop_environment();
+    let (provider, supported) = linux_screenshot_support_for_session(
+        session,
+        desktop_environment,
+        is_linux_command_available("scrot"),
+        is_linux_command_available("import"),
+        is_linux_command_available("maim"),
+        is_linux_command_available("grim"),
+        is_linux_command_available("gnome-screenshot"),
+        is_linux_command_available("spectacle"),
+    );
+
+    if supported {
+        LinuxScreenshotSupport::supported(provider)
+    } else {
+        LinuxScreenshotSupport::unsupported()
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn rect_contains_point(rect: LinuxCaptureRect, point: (i32, i32)) -> bool {
     let (x, y, width, height) = rect;
@@ -1471,10 +1626,11 @@ fn capture_target_hmonitor(
 #[cfg(test)]
 mod tests {
     use super::{
-        capture_target_point, normalize_linux_crop_rect, parse_xrandr_active_monitor_rects,
-        should_capture_all_displays, ScreenshotService,
+        capture_target_point, linux_screenshot_support_for_session, normalize_linux_crop_rect,
+        parse_xrandr_active_monitor_rects, should_capture_all_displays, ScreenshotService,
     };
     use crate::config::{ScreenshotDisplayMode, StorageConfig};
+    use crate::linux_session::{LinuxDesktopEnvironment, LinuxDesktopSession};
     use crate::monitor::{ActiveWindow, WindowBounds};
     use base64::Engine as _;
     use image::{DynamicImage, Rgba, RgbaImage};
@@ -1575,6 +1731,62 @@ Monitors: 2
         assert_eq!(
             normalize_linux_crop_rect((-1920, 0), (-1600, 120, 1280, 800), 4480, 1440),
             Some((320, 120, 1280, 800))
+        );
+    }
+
+    #[test]
+    fn linux截图provider应按会话与桌面环境选择() {
+        assert_eq!(
+            linux_screenshot_support_for_session(
+                LinuxDesktopSession::Wayland,
+                LinuxDesktopEnvironment::Gnome,
+                false,
+                false,
+                false,
+                true,
+                false,
+                true
+            ),
+            ("grim", true)
+        );
+        assert_eq!(
+            linux_screenshot_support_for_session(
+                LinuxDesktopSession::Wayland,
+                LinuxDesktopEnvironment::Kde,
+                false,
+                false,
+                false,
+                true,
+                true,
+                true
+            ),
+            ("spectacle", true)
+        );
+        assert_eq!(
+            linux_screenshot_support_for_session(
+                LinuxDesktopSession::X11,
+                LinuxDesktopEnvironment::Unknown,
+                false,
+                true,
+                true,
+                false,
+                false,
+                false
+            ),
+            ("import", true)
+        );
+        assert_eq!(
+            linux_screenshot_support_for_session(
+                LinuxDesktopSession::Wayland,
+                LinuxDesktopEnvironment::Unknown,
+                false,
+                false,
+                false,
+                false,
+                false,
+                false
+            ),
+            ("none", false)
         );
     }
 

@@ -36,6 +36,7 @@ const MOUSE_GROUP_MOVE: u8 = 1;
 const MOUSE_GROUP_LEFT: u8 = 2;
 const MOUSE_GROUP_RIGHT: u8 = 3;
 const MOUSE_GROUP_SIDE: u8 = 4;
+const INPUT_BRIDGE_POLL_INTERVAL: Duration = Duration::from_millis(16);
 #[cfg(target_os = "linux")]
 const WAYLAND_MOUSE_POLL_INTERVAL: Duration = Duration::from_millis(120);
 
@@ -893,7 +894,7 @@ pub fn spawn_avatar_input_bridge(app: AppHandle) {
                 last_payload = Some(next_payload);
             }
 
-            tokio::time::sleep(Duration::from_millis(33)).await;
+            tokio::time::sleep(INPUT_BRIDGE_POLL_INTERVAL).await;
         }
     });
 }
@@ -968,6 +969,11 @@ pub fn start_avatar_input_monitor(app: &AppHandle) {
 
     if !crate::screenshot::has_accessibility_permission(false) {
         log::warn!("桌宠输入联动未启动：缺少辅助功能权限");
+        return;
+    }
+
+    if !crate::screenshot::has_input_monitoring_permission() {
+        log::warn!("桌宠输入联动未启动：缺少输入监控权限");
         return;
     }
 

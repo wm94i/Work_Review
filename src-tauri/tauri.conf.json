@@ -42,6 +42,7 @@
       "minimumSystemVersion": "10.13",
       "exceptionDomain": "",
       "signingIdentity": null,
+      "infoPlist": "Info.plist",
       "entitlements": "entitlements.plist"
     },
     "linux": {
@@ -50,8 +51,9 @@
           "xdotool",
           "xprintidle",
           "x11-utils",
+          "libglib2.0-bin",
           "tesseract-ocr",
-          "scrot | maim | imagemagick",
+          "gnome-screenshot | grim | scrot | maim | imagemagick",
           "procps"
         ]
       },

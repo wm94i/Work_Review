@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Work Review 需要屏幕录制权限来定时截取屏幕截图，用于记录您的工作活动。所有数据仅保存在本地。</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Work Review 需要自动化权限来获取当前活动窗口信息和浏览器 URL，用于生成工作日报。</string>
+</dict>
+</plist>

@@ -4218,6 +4218,7 @@ pub async fn get_linux_session_support() -> Result<LinuxSessionSupportInfo, AppE
         let active_window_provider =
             crate::monitor::current_linux_active_window_provider(session, desktop_environment);
         let avatar_input_support = crate::avatar_input::current_linux_avatar_input_support();
+        let screenshot_support = crate::screenshot::current_linux_screenshot_support();
         let gnome_avatar_extension_installed = desktop_environment
             == crate::linux_session::LinuxDesktopEnvironment::Gnome
             && is_gnome_avatar_extension_installed();
@@ -4243,7 +4244,7 @@ pub async fn get_linux_session_support() -> Result<LinuxSessionSupportInfo, AppE
             desktop_environment: desktop_environment.as_str().to_string(),
             active_window_provider: active_window_provider.unwrap_or("none").to_string(),
             active_window_supported,
-            screenshot_supported: session.supports_screenshot_capture(),
+            screenshot_supported: screenshot_support.supported,
             browser_url_support_level: browser_url_support_level.to_string(),
             avatar_input_provider: avatar_input_support.provider.to_string(),
             avatar_input_support_level: avatar_input_support.support_level.to_string(),
@@ -5906,11 +5907,36 @@ pub async fn is_screen_locked() -> Result<bool, AppError> {
 pub async fn check_permissions() -> Result<serde_json::Value, AppError> {
     let screen_capture = crate::screenshot::has_screen_capture_permission();
     let accessibility = crate::screenshot::has_accessibility_permission(false);
+    let input_monitoring = crate::screenshot::has_input_monitoring_permission();
+
+    #[cfg(target_os = "linux")]
+    let screenshot_supported = crate::screenshot::current_linux_screenshot_support().supported;
+    #[cfg(not(target_os = "linux"))]
+    let screenshot_supported = screen_capture;
+
+    #[cfg(target_os = "linux")]
+    let avatar_input_supported =
+        crate::avatar_input::current_linux_avatar_input_support().support_level != "none";
+    #[cfg(target_os = "macos")]
+    let avatar_input_supported = accessibility && input_monitoring;
+    #[cfg(target_os = "windows")]
+    let avatar_input_supported = true;
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let avatar_input_supported = false;
+
+    let all_granted = if cfg!(target_os = "macos") {
+        screen_capture && accessibility && input_monitoring
+    } else {
+        screenshot_supported && avatar_input_supported
+    };
 
     Ok(serde_json::json!({
         "screen_capture": screen_capture,
         "accessibility": accessibility,
-        "all_granted": screen_capture && accessibility,
+        "input_monitoring": input_monitoring,
+        "screenshot_supported": screenshot_supported,
+        "avatar_input_supported": avatar_input_supported,
+        "all_granted": all_granted,
         "platform": std::env::consts::OS,
     }))
 }
