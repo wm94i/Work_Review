@@ -86,7 +86,7 @@
       autoStartEnabled = await invoke('is_autostart_enabled');
       config.auto_start = autoStartEnabled;
       dispatch('change', config);
-    } catch(e) {
+    } catch (e) {
       console.error('重新校验开机自启状态失败:', e);
     }
   }
