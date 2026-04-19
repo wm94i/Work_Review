@@ -16,7 +16,9 @@ const AVATAR_SCALE_DEFAULT: f64 = 0.9;
 const AVATAR_OPACITY_DEFAULT: f64 = 0.82;
 const AVATAR_WINDOW_BASE_WIDTH: f64 = 276.0;
 const AVATAR_WINDOW_BASE_HEIGHT: f64 = 248.0;
+#[cfg(test)]
 const AVATAR_WINDOW_WIDTH: f64 = AVATAR_WINDOW_BASE_WIDTH * AVATAR_SCALE_DEFAULT;
+#[cfg(test)]
 const AVATAR_WINDOW_HEIGHT: f64 = AVATAR_WINDOW_BASE_HEIGHT * AVATAR_SCALE_DEFAULT;
 const AVATAR_WINDOW_MARGIN: f64 = 8.0;
 
@@ -436,21 +438,15 @@ fn remembered_avatar_position(
 }
 
 pub fn emit_avatar_state(app: &AppHandle, payload: &AvatarStatePayload) {
-    if let Some(window) = app.get_webview_window(AVATAR_WINDOW_LABEL) {
-        let _ = window.emit(AVATAR_STATE_EVENT, payload);
-    }
+    let _ = app.emit_to(AVATAR_WINDOW_LABEL, AVATAR_STATE_EVENT, payload);
 }
 
 pub fn emit_avatar_bubble(app: &AppHandle, payload: &AvatarBubblePayload) {
-    if let Some(window) = app.get_webview_window(AVATAR_WINDOW_LABEL) {
-        let _ = window.emit(AVATAR_BUBBLE_EVENT, payload);
-    }
+    let _ = app.emit_to(AVATAR_WINDOW_LABEL, AVATAR_BUBBLE_EVENT, payload);
 }
 
 pub fn emit_avatar_input(app: &AppHandle, payload: &AvatarInputPayload) {
-    if let Some(window) = app.get_webview_window(AVATAR_WINDOW_LABEL) {
-        let _ = window.emit(AVATAR_INPUT_EVENT, payload);
-    }
+    let _ = app.emit_to(AVATAR_WINDOW_LABEL, AVATAR_INPUT_EVENT, payload);
 }
 
 fn ensure_avatar_window(app: &AppHandle, scale: f64) -> tauri::Result<()> {
@@ -579,6 +575,7 @@ fn resolve_avatar_position(
     )
 }
 
+#[cfg(test)]
 fn clamp_avatar_position(bounds: Rect, preferred_x: i32, preferred_y: i32) -> (i32, i32) {
     clamp_avatar_position_with_size(
         bounds,
