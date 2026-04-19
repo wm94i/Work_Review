@@ -73,18 +73,22 @@
 
   // 开机自启动切换
   async function toggleAutoStart() {
+    const targetState = !autoStartEnabled;
     try {
-      autoStartEnabled = await invoke('is_autostart_enabled');
-      if (autoStartEnabled) {
-        await invoke('disable_autostart');
-      } else {
+      if (targetState) {
         await invoke('enable_autostart');
+      } else {
+        await invoke('disable_autostart');
       }
+    } catch (e) {
+      console.warn(`切换系统自启失败/警告 (目标状态: ${targetState}):`, e);
+    }
+    try {
       autoStartEnabled = await invoke('is_autostart_enabled');
       config.auto_start = autoStartEnabled;
       dispatch('change', config);
     } catch (e) {
-      console.error('设置开机自启动失败:', e);
+      console.error('重新校验开机自启状态失败:', e);
     }
   }
 
