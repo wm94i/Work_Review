@@ -436,8 +436,40 @@ pub fn apply_avatar_window_expansion(
     if let Some(window) = app.get_webview_window(AVATAR_WINDOW_LABEL) {
         let normalized_scale = normalize_avatar_scale(scale);
         resize_avatar_window(&window, normalized_scale, expanded);
+        clamp_window_within_current_monitor(&window, normalized_scale, expanded);
     }
     Ok(())
+}
+
+fn clamp_window_within_current_monitor(window: &WebviewWindow, scale: f64, expanded: bool) {
+    let monitor = match window.current_monitor() {
+        Ok(Some(monitor)) => monitor,
+        _ => return,
+    };
+    let current = match window.outer_position() {
+        Ok(position) => position,
+        Err(_) => return,
+    };
+    let work_area = monitor.work_area();
+    let bounds = Rect {
+        x: work_area.position.x,
+        y: work_area.position.y,
+        width: work_area.size.width as i32,
+        height: work_area.size.height as i32,
+    };
+    let (window_width, window_height) = avatar_window_size(scale, expanded);
+    let (clamped_x, clamped_y) = clamp_avatar_position_with_size(
+        bounds,
+        current.x,
+        current.y,
+        window_width,
+        window_height,
+    );
+    if (clamped_x, clamped_y) != (current.x, current.y) {
+        let _ = window.set_position(Position::Physical(PhysicalPosition::new(
+            clamped_x, clamped_y,
+        )));
+    }
 }
 
 fn remembered_avatar_position(
@@ -676,9 +708,10 @@ fn avatar_state(
 #[cfg(test)]
 mod tests {
     use super::{
-        avatar_window_size, clamp_avatar_position, default_avatar_state, derive_avatar_state,
-        derive_avatar_state_with_rules, remembered_avatar_position, resolve_avatar_position, Rect,
-        AVATAR_WINDOW_HEIGHT, AVATAR_WINDOW_WIDTH,
+        avatar_window_size, clamp_avatar_position, clamp_avatar_position_with_size,
+        default_avatar_state, derive_avatar_state, derive_avatar_state_with_rules,
+        remembered_avatar_position, resolve_avatar_position, Rect, AVATAR_WINDOW_HEIGHT,
+        AVATAR_WINDOW_WIDTH,
     };
     use crate::config::AppCategoryRule;
 
@@ -953,5 +986,49 @@ mod tests {
         let position = remembered_avatar_position(true, Some((640, 520)), Some((120, 240)));
 
         assert_eq!(position, Some((640, 520)));
+    }
+
+    #[test]
+    fn 桌宠展开时应按新尺寸将贴边位置钳制回可视区域() {
+        let bounds = Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 720,
+        };
+        let (compact_w, compact_h) = avatar_window_size(0.9, false);
+        let compact_x = 1280 - compact_w as i32;
+        let compact_y = 720 - compact_h as i32;
+
+        let (expanded_w, expanded_h) = avatar_window_size(0.9, true);
+        let (x, y) = clamp_avatar_position_with_size(
+            bounds,
+            compact_x,
+            compact_y,
+            expanded_w,
+            expanded_h,
+        );
+
+        assert_eq!(
+            (x, y),
+            (1280 - expanded_w as i32, 720 - expanded_h as i32)
+        );
+        assert!(x < compact_x);
+        assert!(y < compact_y);
+    }
+
+    #[test]
+    fn 桌宠收起时不应移动仍在可视区域内的位置() {
+        let bounds = Rect {
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 720,
+        };
+        let (compact_w, compact_h) = avatar_window_size(0.9, false);
+
+        let (x, y) = clamp_avatar_position_with_size(bounds, 120, 200, compact_w, compact_h);
+
+        assert_eq!((x, y), (120, 200));
     }
 }

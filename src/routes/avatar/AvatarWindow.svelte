@@ -57,7 +57,7 @@
   let handleVisibilityChange = null;
   let handleContextMenu = null;
   let handleKeydown = null;
-  let avatarExpanded = false;
+  let avatarExpanded = null;
   $: currentLocale = $locale;
 
   const RUNTIME_BUBBLE_MESSAGES = {
@@ -241,10 +241,12 @@
     if (avatarExpanded === expanded) {
       return;
     }
+    const previous = avatarExpanded;
     avatarExpanded = expanded;
     try {
       await invoke('set_avatar_window_expanded', { expanded });
     } catch (e) {
+      avatarExpanded = previous;
       console.error('更新桌宠窗口尺寸失败:', e);
     }
   }
