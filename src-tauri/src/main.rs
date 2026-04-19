@@ -2970,6 +2970,7 @@ async fn main() {
                 avatar_enabled,
                 avatar_scale,
                 avatar_position,
+                false,
             ) {
                 log::warn!("初始化桌宠窗口失败: {e}");
             } else if avatar_enabled {
@@ -3180,6 +3181,7 @@ async fn main() {
             commands::get_avatar_state,
             commands::save_avatar_position,
             commands::persist_avatar_position,
+            commands::set_avatar_window_expanded,
             commands::get_data_dir,
             commands::get_default_data_dir,
             commands::get_runtime_platform,

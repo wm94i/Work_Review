@@ -3273,6 +3273,7 @@ pub(crate) fn persist_app_config(
             config.avatar_enabled,
             config.avatar_scale,
             config.avatar_x.zip(config.avatar_y),
+            false,
         )
         .map_err(|e| AppError::Unknown(format!("同步桌宠窗口失败: {e}")))?;
     }
@@ -4271,6 +4272,21 @@ pub async fn save_avatar_position(
     state.config.save(&config_path)?;
 
     Ok(())
+}
+
+/// 根据气泡/卡片展开状态调整桌宠窗口尺寸
+#[tauri::command]
+pub async fn set_avatar_window_expanded(
+    expanded: bool,
+    app: AppHandle,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let scale = {
+        let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+        state.config.avatar_scale
+    };
+    crate::avatar_engine::apply_avatar_window_expansion(&app, scale, expanded)
+        .map_err(|e| AppError::Unknown(format!("调整桌宠窗口尺寸失败: {e}")))
 }
 
 /// 从桌面助手窗口读取当前位置并持久化

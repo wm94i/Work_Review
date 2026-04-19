@@ -57,6 +57,7 @@
   let handleVisibilityChange = null;
   let handleContextMenu = null;
   let handleKeydown = null;
+  let avatarExpanded = false;
   $: currentLocale = $locale;
 
   const RUNTIME_BUBBLE_MESSAGES = {
@@ -121,8 +122,11 @@
       surfaceClass: 'border-emerald-200/95 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(236,253,245,0.98))]',
       strategyKey: 'settingsAppearance.avatarFollowupCompanionStrategy',
       focusKey: 'settingsAppearance.avatarFollowupFocusCompanion',
+      focusFullKey: 'settingsAppearance.avatarFollowupFocusFullCompanion',
       rememberKey: 'settingsAppearance.avatarFollowupRememberCompanion',
+      rememberFullKey: 'settingsAppearance.avatarFollowupRememberFullCompanion',
       snoozeKey: 'settingsAppearance.avatarFollowupSnoozeCompanion',
+      snoozeFullKey: 'settingsAppearance.avatarFollowupSnoozeFullCompanion',
       timelineOpeningKey: 'settingsAppearance.avatarFollowupTimelineOpeningCompanion',
       rememberedKey: 'settingsAppearance.avatarFollowupRememberedCompanion',
       snoozedKey: 'settingsAppearance.avatarFollowupSnoozedCompanion',
@@ -136,8 +140,11 @@
       surfaceClass: 'border-sky-200/95 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(239,246,255,0.98))]',
       strategyKey: 'settingsAppearance.avatarFollowupAssistantStrategy',
       focusKey: 'settingsAppearance.avatarFollowupFocus',
+      focusFullKey: 'settingsAppearance.avatarFollowupFocusFull',
       rememberKey: 'settingsAppearance.avatarFollowupRemember',
+      rememberFullKey: 'settingsAppearance.avatarFollowupRememberFull',
       snoozeKey: 'settingsAppearance.avatarFollowupSnooze',
+      snoozeFullKey: 'settingsAppearance.avatarFollowupSnoozeFull',
       timelineOpeningKey: 'settingsAppearance.avatarFollowupTimelineOpening',
       rememberedKey: 'settingsAppearance.avatarFollowupRemembered',
       snoozedKey: 'settingsAppearance.avatarFollowupSnoozed',
@@ -151,8 +158,11 @@
       surfaceClass: 'border-amber-200/95 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,251,235,0.98))]',
       strategyKey: 'settingsAppearance.avatarFollowupCoachStrategy',
       focusKey: 'settingsAppearance.avatarFollowupFocusCoach',
+      focusFullKey: 'settingsAppearance.avatarFollowupFocusFullCoach',
       rememberKey: 'settingsAppearance.avatarFollowupRememberCoach',
+      rememberFullKey: 'settingsAppearance.avatarFollowupRememberFullCoach',
       snoozeKey: 'settingsAppearance.avatarFollowupSnoozeCoach',
+      snoozeFullKey: 'settingsAppearance.avatarFollowupSnoozeFullCoach',
       timelineOpeningKey: 'settingsAppearance.avatarFollowupTimelineOpeningCoach',
       rememberedKey: 'settingsAppearance.avatarFollowupRememberedCoach',
       snoozedKey: 'settingsAppearance.avatarFollowupSnoozedCoach',
@@ -225,6 +235,19 @@
   $: focusBubble = buildFocusBubblePayload(focusSession);
   $: bubble = localizeBubblePayload(focusBubble || bubbleSource, currentLocale);
   $: followupCopy = buildFollowupCopy(followup);
+  $: syncAvatarExpansion(followup != null);
+
+  async function syncAvatarExpansion(expanded) {
+    if (avatarExpanded === expanded) {
+      return;
+    }
+    avatarExpanded = expanded;
+    try {
+      await invoke('set_avatar_window_expanded', { expanded });
+    } catch (e) {
+      console.error('更新桌宠窗口尺寸失败:', e);
+    }
+  }
 
   function clearBubble() {
     bubbleSource = null;
@@ -310,8 +333,11 @@
       ].filter(Boolean).join(' · '),
       openTimeline: t('settingsAppearance.avatarFollowupOpenTimeline'),
       focus: t(theme.focusKey),
+      focusFull: t(theme.focusFullKey),
       remember: t(theme.rememberKey),
+      rememberFull: t(theme.rememberFullKey),
       snooze: t(theme.snoozeKey),
+      snoozeFull: t(theme.snoozeFullKey),
       dismissLabel: t('settingsAppearance.avatarFollowupDismiss'),
       badgeClass: theme.badgeClass,
       primaryClass: theme.primaryClass,

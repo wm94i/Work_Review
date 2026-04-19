@@ -714,3 +714,64 @@ test('静态预设应把键盘高亮提升到封面上方，并移除整块鼠�
   assert.match(registrySource, /keyboard-focus[\s\S]*keyboardHotspotsAboveCover:\s*true/);
   assert.match(registrySource, /minimal-office[\s\S]*keyboardHotspotsAboveCover:\s*true/);
 });
+
+test('桌宠继续提醒卡片应纵向排列三个次要动作，并为按钮提供完整文案的 title/aria-label', () => {
+  const cardSource = readFileSync(new URL('./AvatarFollowupCard.svelte', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(cardSource, /grid-cols-3/);
+  assert.match(cardSource, /flex flex-col gap-2/);
+  assert.match(cardSource, /title=\{copy\.focusFull \|\| copy\.focus\}/);
+  assert.match(cardSource, /aria-label=\{copy\.focusFull \|\| copy\.focus\}/);
+  assert.match(cardSource, /title=\{copy\.rememberFull \|\| copy\.remember\}/);
+  assert.match(cardSource, /aria-label=\{copy\.rememberFull \|\| copy\.remember\}/);
+  assert.match(cardSource, /title=\{copy\.snoozeFull \|\| copy\.snooze\}/);
+  assert.match(cardSource, /aria-label=\{copy\.snoozeFull \|\| copy\.snooze\}/);
+  assert.match(cardSource, /w-\[min\(92vw,348px\)\]/);
+});
+
+test('桌宠窗口应在继续提醒卡片出现/消失时动态扩展原生窗口尺寸', () => {
+  const windowSource = readFileSync(new URL('../../../routes/avatar/AvatarWindow.svelte', import.meta.url), 'utf8');
+  const commandsSource = readFileSync(new URL('../../../../src-tauri/src/commands.rs', import.meta.url), 'utf8');
+  const mainSource = readFileSync(new URL('../../../../src-tauri/src/main.rs', import.meta.url), 'utf8');
+  const engineSource = readFileSync(new URL('../../../../src-tauri/src/avatar_engine.rs', import.meta.url), 'utf8');
+
+  assert.match(windowSource, /set_avatar_window_expanded/);
+  assert.match(windowSource, /syncAvatarExpansion\(followup != null\)/);
+  assert.match(windowSource, /avatarExpanded === expanded/);
+  assert.match(commandsSource, /pub async fn set_avatar_window_expanded/);
+  assert.match(commandsSource, /apply_avatar_window_expansion/);
+  assert.match(mainSource, /commands::set_avatar_window_expanded/);
+  assert.match(engineSource, /pub fn apply_avatar_window_expansion/);
+  assert.match(engineSource, /AVATAR_WINDOW_EXPANDED_BASE_WIDTH/);
+  assert.match(engineSource, /AVATAR_WINDOW_EXPANDED_BASE_HEIGHT/);
+  assert.match(engineSource, /fn avatar_window_size\(scale: f64, expanded: bool\)/);
+});
+
+test('继续提醒卡片应为每种人格提供紧凑按钮文案与完整 tooltip 文案', () => {
+  const windowSource = readFileSync(new URL('../../../routes/avatar/AvatarWindow.svelte', import.meta.url), 'utf8');
+  const i18nSource = readFileSync(new URL('../../../lib/i18n/index.js', import.meta.url), 'utf8');
+
+  assert.match(windowSource, /focusFullKey:\s*'settingsAppearance\.avatarFollowupFocusFull'/);
+  assert.match(windowSource, /focusFullKey:\s*'settingsAppearance\.avatarFollowupFocusFullCompanion'/);
+  assert.match(windowSource, /focusFullKey:\s*'settingsAppearance\.avatarFollowupFocusFullCoach'/);
+  assert.match(windowSource, /rememberFullKey:\s*'settingsAppearance\.avatarFollowupRememberFull'/);
+  assert.match(windowSource, /snoozeFullKey:\s*'settingsAppearance\.avatarFollowupSnoozeFull'/);
+  assert.match(windowSource, /focusFull:\s*t\(theme\.focusFullKey\)/);
+  assert.match(windowSource, /rememberFull:\s*t\(theme\.rememberFullKey\)/);
+  assert.match(windowSource, /snoozeFull:\s*t\(theme\.snoozeFullKey\)/);
+  assert.match(i18nSource, /avatarFollowupFocusFull:/);
+  assert.match(i18nSource, /avatarFollowupFocusFullCompanion:/);
+  assert.match(i18nSource, /avatarFollowupFocusFullCoach:/);
+  assert.match(i18nSource, /avatarFollowupRememberFull:/);
+  assert.match(i18nSource, /avatarFollowupSnoozeFull:/);
+});
+
+test('桌宠气泡面板在非紧凑文案下应允许更长的英文文字换行，避免整段被裁断', () => {
+  const popoverSource = readFileSync(new URL('./AvatarPopover.svelte', import.meta.url), 'utf8');
+
+  assert.match(popoverSource, /width: min\(88vw, 336px\); min-width: 180px; max-width: min\(88vw, 336px\);/);
+  assert.match(popoverSource, /max-height: 140px/);
+  assert.match(popoverSource, /word-break: normal/);
+  assert.match(popoverSource, /overflow-wrap: anywhere/);
+  assert.doesNotMatch(popoverSource, /line-break: strict/);
+});

@@ -21,7 +21,7 @@
   $: compactBubbleMessage = !bubbleMessage?.includes('\n') && (bubbleMessage?.trim().length ?? 0) <= 14;
   $: bubblePanelStyle = compactBubbleMessage
     ? 'width: fit-content; min-width: 120px; max-width: min(68vw, 196px);'
-    : 'width: min(76vw, 236px); min-width: 168px; max-width: min(76vw, 236px);';
+    : 'width: min(88vw, 336px); min-width: 180px; max-width: min(88vw, 336px);';
 </script>
 
 {#if bubble}
@@ -57,7 +57,7 @@
           <div
             class="pointer-events-none relative text-[12px] font-semibold leading-[1.35] tracking-[0.01em]"
             class:pr-8={bubble?.persistent}
-            style="display: block; min-height: 27px; max-height: 90px; overflow: hidden; text-align: {compactBubbleMessage ? 'center' : 'left'}; word-break: keep-all; overflow-wrap: normal; white-space: normal; line-break: strict;"
+            style="display: block; min-height: 27px; max-height: 140px; overflow: hidden; text-align: {compactBubbleMessage ? 'center' : 'left'}; word-break: normal; overflow-wrap: anywhere; white-space: normal;"
           >
             {bubbleMessage}
           </div>

@@ -16,6 +16,8 @@ const AVATAR_SCALE_DEFAULT: f64 = 0.9;
 const AVATAR_OPACITY_DEFAULT: f64 = 0.82;
 const AVATAR_WINDOW_BASE_WIDTH: f64 = 276.0;
 const AVATAR_WINDOW_BASE_HEIGHT: f64 = 248.0;
+const AVATAR_WINDOW_EXPANDED_BASE_WIDTH: f64 = 380.0;
+const AVATAR_WINDOW_EXPANDED_BASE_HEIGHT: f64 = 440.0;
 #[cfg(test)]
 const AVATAR_WINDOW_WIDTH: f64 = AVATAR_WINDOW_BASE_WIDTH * AVATAR_SCALE_DEFAULT;
 #[cfg(test)]
@@ -393,6 +395,7 @@ pub fn sync_avatar_window(
     enabled: bool,
     scale: f64,
     saved_position: Option<(i32, i32)>,
+    expanded: bool,
 ) -> tauri::Result<()> {
     if enabled {
         let had_existing_window = app.get_webview_window(AVATAR_WINDOW_LABEL).is_some();
@@ -410,7 +413,7 @@ pub fn sync_avatar_window(
             let effective_position =
                 remembered_avatar_position(had_existing_window, current_position, saved_position);
             let (x, y) = default_avatar_position(app, normalized_scale, effective_position);
-            resize_avatar_window(&window, normalized_scale);
+            resize_avatar_window(&window, normalized_scale, expanded);
             let _ = window.set_always_on_top(true);
             let _ = window.set_visible_on_all_workspaces(true);
             let _ = window.set_skip_taskbar(true);
@@ -422,6 +425,18 @@ pub fn sync_avatar_window(
         let _ = window.hide();
     }
 
+    Ok(())
+}
+
+pub fn apply_avatar_window_expansion(
+    app: &AppHandle,
+    scale: f64,
+    expanded: bool,
+) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(AVATAR_WINDOW_LABEL) {
+        let normalized_scale = normalize_avatar_scale(scale);
+        resize_avatar_window(&window, normalized_scale, expanded);
+    }
     Ok(())
 }
 
@@ -454,7 +469,7 @@ fn ensure_avatar_window(app: &AppHandle, scale: f64) -> tauri::Result<()> {
         return Ok(());
     }
 
-    let (window_width, window_height) = avatar_window_size(scale);
+    let (window_width, window_height) = avatar_window_size(scale, false);
 
     let window = WebviewWindowBuilder::new(app, AVATAR_WINDOW_LABEL, WebviewUrl::default())
         .title("Work Review Avatar")
@@ -483,8 +498,8 @@ fn ensure_avatar_window(app: &AppHandle, scale: f64) -> tauri::Result<()> {
     Ok(())
 }
 
-fn resize_avatar_window(window: &WebviewWindow, scale: f64) {
-    let (window_width, window_height) = avatar_window_size(scale);
+fn resize_avatar_window(window: &WebviewWindow, scale: f64, expanded: bool) {
+    let (window_width, window_height) = avatar_window_size(scale, expanded);
     let _ = window.set_size(Size::Logical(LogicalSize::new(window_width, window_height)));
     let _ = window.set_min_size(Some(Size::Logical(LogicalSize::new(
         window_width,
@@ -547,7 +562,7 @@ fn resolve_avatar_position(
     saved_position: Option<(i32, i32)>,
     scale: f64,
 ) -> (i32, i32) {
-    let (window_width, window_height) = avatar_window_size(scale);
+    let (window_width, window_height) = avatar_window_size(scale, false);
 
     if let Some((saved_x, saved_y)) = saved_position {
         return clamp_avatar_position_with_size(
@@ -602,11 +617,19 @@ fn clamp_avatar_position_with_size(
     )
 }
 
-fn avatar_window_size(scale: f64) -> (f64, f64) {
+fn avatar_window_size(scale: f64, expanded: bool) -> (f64, f64) {
     let normalized_scale = normalize_avatar_scale(scale);
+    let (base_width, base_height) = if expanded {
+        (
+            AVATAR_WINDOW_EXPANDED_BASE_WIDTH,
+            AVATAR_WINDOW_EXPANDED_BASE_HEIGHT,
+        )
+    } else {
+        (AVATAR_WINDOW_BASE_WIDTH, AVATAR_WINDOW_BASE_HEIGHT)
+    };
     (
-        ((AVATAR_WINDOW_BASE_WIDTH * normalized_scale) * 10.0).round() / 10.0,
-        ((AVATAR_WINDOW_BASE_HEIGHT * normalized_scale) * 10.0).round() / 10.0,
+        ((base_width * normalized_scale) * 10.0).round() / 10.0,
+        ((base_height * normalized_scale) * 10.0).round() / 10.0,
     )
 }
 
@@ -823,15 +846,25 @@ mod tests {
 
     #[test]
     fn 桌宠窗口尺寸应随缩放变化() {
-        let (small_w, small_h) = avatar_window_size(0.7);
-        let (default_w, default_h) = avatar_window_size(0.9);
-        let (large_w, large_h) = avatar_window_size(1.3);
+        let (small_w, small_h) = avatar_window_size(0.7, false);
+        let (default_w, default_h) = avatar_window_size(0.9, false);
+        let (large_w, large_h) = avatar_window_size(1.3, false);
 
         assert!(small_w < default_w);
         assert!(small_h < default_h);
         assert!(large_w > default_w);
         assert!(large_h > default_h);
         assert_eq!((default_w, default_h), (248.4, 223.2));
+    }
+
+    #[test]
+    fn 桌宠窗口在展开模式下应比紧凑模式更宽更高() {
+        let (compact_w, compact_h) = avatar_window_size(0.9, false);
+        let (expanded_w, expanded_h) = avatar_window_size(0.9, true);
+
+        assert!(expanded_w > compact_w);
+        assert!(expanded_h > compact_h);
+        assert_eq!((expanded_w, expanded_h), (342.0, 396.0));
     }
 
     #[test]

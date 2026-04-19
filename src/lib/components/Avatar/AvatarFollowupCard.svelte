@@ -16,7 +16,7 @@
 {#if followup && copy}
   <div class="absolute inset-0 z-30 overflow-visible pointer-events-none">
     <section
-      class={`pointer-events-auto absolute right-[4%] top-[8px] flex w-[min(84vw,292px)] max-w-[292px] flex-col overflow-hidden rounded-[16px] border border-slate-200/95 bg-[rgba(255,255,255,0.96)] p-[14px] text-slate-900 shadow-[0_14px_28px_rgba(15,23,42,0.14),0_4px_12px_rgba(15,23,42,0.07)] backdrop-blur-[14px] ${copy.surfaceClass || ''}`}
+      class={`pointer-events-auto absolute right-[4%] top-[8px] flex w-[min(92vw,348px)] max-w-[348px] flex-col overflow-hidden rounded-[16px] border border-slate-200/95 bg-[rgba(255,255,255,0.96)] p-[14px] text-slate-900 shadow-[0_14px_28px_rgba(15,23,42,0.14),0_4px_12px_rgba(15,23,42,0.07)] backdrop-blur-[14px] ${copy.surfaceClass || ''}`}
       style="max-height: calc(100vh - 16px);"
     >
       <div class="pointer-events-none absolute inset-[1px] rounded-[15px] border border-white/70"></div>
@@ -69,27 +69,33 @@
           {copy.openTimeline}
         </button>
 
-        <div class="grid grid-cols-3 gap-2">
+        <div class="flex flex-col gap-2">
           <button
             type="button"
-            class="inline-flex min-h-[34px] items-center justify-center rounded-[10px] border border-slate-200 bg-white px-2 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            class="inline-flex min-h-[34px] w-full items-center justify-center gap-1 rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            title={copy.focusFull || copy.focus}
+            aria-label={copy.focusFull || copy.focus}
             on:click={onFocus}
           >
-            {copy.focus}
+            <span class="truncate">{copy.focusFull || copy.focus}</span>
           </button>
           <button
             type="button"
-            class="inline-flex min-h-[34px] items-center justify-center rounded-[10px] border border-slate-200 bg-white px-2 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            class="inline-flex min-h-[34px] w-full items-center justify-center gap-1 rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            title={copy.rememberFull || copy.remember}
+            aria-label={copy.rememberFull || copy.remember}
             on:click={onRemember}
           >
-            {copy.remember}
+            <span class="truncate">{copy.rememberFull || copy.remember}</span>
           </button>
           <button
             type="button"
-            class="inline-flex min-h-[34px] items-center justify-center rounded-[10px] border border-slate-200 bg-white px-2 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            class="inline-flex min-h-[34px] w-full items-center justify-center gap-1 rounded-[10px] border border-slate-200 bg-white px-3 py-2 text-[12px] font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            title={copy.snoozeFull || copy.snooze}
+            aria-label={copy.snoozeFull || copy.snooze}
             on:click={onSnooze}
           >
-            {copy.snooze}
+            <span class="truncate">{copy.snoozeFull || copy.snooze}</span>
           </button>
         </div>
       </div>
