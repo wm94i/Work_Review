@@ -399,6 +399,7 @@ mod tests {
     use crate::config::AvatarFollowupItem;
     use crate::database::Activity;
     use crate::monitor::ActiveWindow;
+    use chrono::TimeZone;
     use crate::work_intelligence::build_work_sessions;
 
     fn sample_activity(
@@ -492,7 +493,10 @@ mod tests {
             find_followup_suggestion(&activities, &active_window, "assistant", &[], 1_710_020_000)
                 .expect("should match");
 
-        assert_eq!(suggestion.date, "2024-03-10");
+        let expected_date = chrono::Local.timestamp_opt(1_710_000_000, 0).earliest()
+            .map(|dt| dt.format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+        assert_eq!(suggestion.date, expected_date);
         assert_eq!(suggestion.persona, "assistant");
         assert!(suggestion.confidence >= 62);
     }
