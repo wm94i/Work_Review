@@ -18,6 +18,11 @@
       autoStartEnabled = await invoke('is_autostart_enabled');
       if (config.auto_start !== autoStartEnabled) {
         config.auto_start = autoStartEnabled;
+        try {
+          await invoke('save_config', { config });
+        } catch (e) {
+          console.error('对齐注册表自启状态时写盘失败:', e);
+        }
         dispatch('change', config);
       }
     } catch (e) {
@@ -76,7 +81,7 @@
     const targetState = !autoStartEnabled;
     try {
       if (targetState) {
-        await invoke('enable_autostart');
+        await invoke('enable_autostart', { silent: !!config.auto_start_silent });
       } else {
         await invoke('disable_autostart');
       }
@@ -86,6 +91,11 @@
     try {
       autoStartEnabled = await invoke('is_autostart_enabled');
       config.auto_start = autoStartEnabled;
+      try {
+        await invoke('save_config', { config });
+      } catch (e) {
+        console.error('保存开机自启状态失败:', e);
+      }
       dispatch('change', config);
     } catch (e) {
       console.error('重新校验开机自启状态失败:', e);
@@ -108,8 +118,23 @@
     dispatch('change', config);
   }
 
-  function updateAutoStartLaunchMode(silentMode) {
+  async function updateAutoStartLaunchMode(silentMode) {
     config.auto_start_silent = silentMode;
+    try {
+      await invoke('save_config', { config });
+    } catch (e) {
+      console.error('保存启动模式失败:', e);
+    }
+    // 若自启动已启用，重注册让注册表 launch args 反映最新 silent 选择：
+    // silent=true 写入 --autostart --hidden，silent=false 只写 --autostart，
+    // 下次开机由 args 直接决定显/隐，不再回头读 config。
+    if (autoStartEnabled) {
+      try {
+        await invoke('enable_autostart', { silent: silentMode });
+      } catch (e) {
+        console.error('更新自启动参数失败:', e);
+      }
+    }
     dispatch('change', config);
   }
 

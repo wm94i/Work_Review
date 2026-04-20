@@ -373,15 +373,33 @@ fn launch_args_contain_autostart(args: &[String]) -> bool {
     args.iter().any(|arg| arg == AUTOSTART_LAUNCH_ARG)
 }
 
-fn launch_args_request_hidden_window(args: &[String]) -> bool {
-    launch_args_contain_autostart(args)
-        || args
-            .iter()
-            .any(|arg| matches!(arg.as_str(), "--hidden" | "--minimized"))
+fn args_include_explicit_hidden_flag(args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg.as_str(), "--hidden" | "--minimized"))
 }
 
-fn should_hide_main_window_on_setup(config: &AppConfig, launch_args: &[String]) -> bool {
-    config.auto_start && config.auto_start_silent && launch_args_request_hidden_window(launch_args)
+#[cfg(not(windows))]
+fn launch_args_request_hidden_window(args: &[String]) -> bool {
+    launch_args_contain_autostart(args) || args_include_explicit_hidden_flag(args)
+}
+
+fn should_hide_main_window_on_setup(_config: &AppConfig, launch_args: &[String]) -> bool {
+    #[cfg(windows)]
+    {
+        // Windows 下注册表参数由 silent 选择动态写入：silent 模式带 `--hidden`，
+        // show 模式只写 `--autostart`。显隐决策直接看 launch args，
+        // 不再依赖 config.json，彻底消除前端忘保存带来的失同步。
+        args_include_explicit_hidden_flag(launch_args)
+    }
+
+    #[cfg(not(windows))]
+    {
+        // macOS/Linux: tauri_plugin_autostart 的 args 在 plugin init 时固定，
+        // 仍由 config.auto_start_silent 作为显隐信源。
+        _config.auto_start
+            && _config.auto_start_silent
+            && launch_args_request_hidden_window(launch_args)
+    }
 }
 
 fn should_request_screen_capture_permission(
@@ -2927,7 +2945,10 @@ async fn main() {
             let should_hide_main_window = {
                 let state_guard = state.inner().lock().unwrap_or_else(|e| e.into_inner());
                 if state_guard.config.auto_start {
-                    if let Err(e) = autostart::enable_autostart(app.handle().clone()) {
+                    if let Err(e) = autostart::enable_autostart(
+                        app.handle().clone(),
+                        state_guard.config.auto_start_silent,
+                    ) {
                         log::warn!("同步修复开机自启注册项失败: {e}");
                     }
                 }
@@ -3630,7 +3651,8 @@ mod tests {
     }
 
     #[test]
-    fn 仅带_autostart_参数且配置开启静默时才应隐藏主窗口() {
+    #[cfg(not(windows))]
+    fn 非windows上应优先使用_autostart_或_hidden_参数并结合配置判定隐藏() {
         let mut config = AppConfig::default();
         config.auto_start = true;
         config.auto_start_silent = true;
@@ -3649,6 +3671,48 @@ mod tests {
         ));
         assert!(should_hide_main_window_on_setup(
             &config,
+            &["work-review".to_string(), "--minimized".to_string()]
+        ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows上应仅凭_launch_args_里显式的_hidden_决定是否隐藏() {
+        // 注册表参数由 silent 选择动态写入，显隐决策不再依赖 config，消除失同步翻车。
+        let mut silent_config = AppConfig::default();
+        silent_config.auto_start = true;
+        silent_config.auto_start_silent = true;
+
+        // silent 模式注册表 → --autostart --hidden → 隐藏
+        assert!(should_hide_main_window_on_setup(
+            &silent_config,
+            &[
+                "work-review".to_string(),
+                "--autostart".to_string(),
+                "--hidden".to_string(),
+            ]
+        ));
+        // show 模式注册表 → 只有 --autostart → 显示
+        assert!(!should_hide_main_window_on_setup(
+            &silent_config,
+            &["work-review".to_string(), "--autostart".to_string()]
+        ));
+        // 普通手动打开 → 显示
+        assert!(!should_hide_main_window_on_setup(
+            &silent_config,
+            &["work-review".to_string()]
+        ));
+
+        // 即使 config 还没保存用户选择（失同步），注册表里的 --hidden 依然能强制隐藏
+        let mut stale_config = AppConfig::default();
+        stale_config.auto_start = false;
+        stale_config.auto_start_silent = false;
+        assert!(should_hide_main_window_on_setup(
+            &stale_config,
+            &["work-review".to_string(), "--hidden".to_string()]
+        ));
+        assert!(should_hide_main_window_on_setup(
+            &stale_config,
             &["work-review".to_string(), "--minimized".to_string()]
         ));
     }
