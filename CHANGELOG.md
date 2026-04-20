@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.41] - 2026-04-20
+
+### 新增
+- 继续提醒卡片补充完整 tooltip 与 aria 文案，桌宠窗口随卡片内容动态调整尺寸。
+- 桌宠提醒与设置页 UX 改进。
+
+### 修复
+- 修复 Windows 11「开机自启 + 静默驻留」仍弹出主窗口的问题：自启动命令现正确携带 `--hidden` 参数，静默模式与启动参数保持同步。
+- 修复桌宠展开后窗口超出可视区域的问题：展开时按新尺寸钳回屏幕范围内；若展开 RPC 失败则自动回滚窗口尺寸。
+- 修复自启动切换失败时 UI 状态失同步的问题（#69）。
+- 修复桌宠权限校验与社区文档相关问题。
+
 ## [1.0.40] - 2026-04-18
 
 ### 新增
