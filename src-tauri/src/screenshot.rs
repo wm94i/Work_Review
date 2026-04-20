@@ -1299,7 +1299,7 @@ fn is_linux_command_available(command: &str) -> bool {
 
     std::env::var_os("PATH")
         .into_iter()
-        .flat_map(|unparsed: std::ffi::OsString| std::env::split_paths(&unparsed))
+        .flat_map(|unparsed: std::ffi::OsString| std::env::split_paths(&unparsed).collect::<Vec<_>>())
         .map(|dir| dir.join(command))
         .any(|path| {
             std::fs::metadata(&path)
