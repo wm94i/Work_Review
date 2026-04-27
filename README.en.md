@@ -25,12 +25,12 @@
 
 Work Review continuously records the apps you use, websites you visit, active windows, and screen context during the day, then turns those fragments into a **reviewable, queryable, and reusable** work trail.
 
-- No manual check-ins
+- No manual check-ins — just look back at what actually happened
 - Overview, timeline, daily report, and assistant all share the same local data
-- You can jump from aggregate stats to concrete pages, titles, and screenshots
-- Supports Simplified Chinese, English, and Traditional Chinese UI, with daily reports generated and switched per current locale
-- Supports lightweight mode, hourly activity views, Markdown report export, and multi-display screenshot strategies
-- Includes `Desktop Avatar Beta` for lightweight presence feedback while you work
+- Jump from aggregate stats to concrete pages, titles, and screenshots
+- Multi-segment work time, per-domain semantic tagging, and hourly activity views
+- Lightweight mode, Markdown report export, and multi-display screenshot strategies
+- `Desktop Avatar Beta` — lightweight desktop companion for presence feedback while you work
 
 > All data stays local by default. AI features are optional.
 
@@ -68,14 +68,62 @@ Work Review is closer to a personal work-trace system:
 | Time-range understanding | Understands “yesterday”, “this week”, or “last 3 days” |
 | Session grouping | Groups fragmented actions into longer work sessions |
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
-| Daily report | Generates structured reports with history view, hourly activity summaries, Markdown export, and locale-aware report switching |
+| Daily report | Structured reports with history view, hourly activity summaries, Markdown export, and AI prompt attachments |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
+| Website semantic tagging | Click a browser domain in the overview to change its semantic category (e.g. tag as "Leisure" to exclude from work time); changes backfill history automatically |
+| Multi-segment work time | Set multiple work segments (e.g. morning + afternoon); break time is excluded from work duration |
 | Desktop Avatar Beta (In Progress) | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating, while interaction details and preset behavior are still being refined |
 
-### Bot Integrations (Telegram / Feishu)
+### Bot Integrations Beta (Telegram / Feishu)
 
 - Query and generate reports remotely via Local API + multi-device registry
 - Supported commands: `/devices`, `/device`, `/reports`, `/report`, `/generate` (Feishu also supports Chinese keywords)
+- For personal multi-device use only. Must not be used for employee monitoring, performance tracking, or covert surveillance
+
+### MCP Server Beta
+
+Connect your work records to AI coding tools via stdio. Supports timeline queries, report generation, work pattern analysis, and more.
+
+- 11 built-in tools (timeline query, daily report, work session analysis, etc.), 3 resources, 3 prompt templates
+- 5 built-in skills (daily review, weekly summary, project time audit, work pattern analysis, focus session advisor) triggered via `execute_skill`
+- Policy engine that automatically filters private apps and redacts sensitive content
+
+<details>
+<summary>Configuration</summary>
+
+Build the MCP Server from source first (will be bundled with the app in future releases):
+
+```bash
+cargo build --release -p work-review-mcp-server
+# Binary at target/release/work-review-mcp-server
+```
+
+The JSON config below works across most tools — just add it in the appropriate location for your tool:
+
+```json
+{
+  "mcpServers": {
+    "work-review": {
+      "command": "/path/to/work-review-mcp-server",
+      "args": [],
+      "env": {
+        "WORK_REVIEW_DB_PATH": "/path/to/work_review.db",
+        "WORK_REVIEW_CONFIG_PATH": "/path/to/config.json"
+      }
+    }
+  }
+}
+```
+
+| Tool | Config location | Scope |
+|------|----------------|-------|
+| Claude Code | `~/.claude/settings.json` | Global |
+| Cursor | Settings > MCP or `.cursor/mcp.json` | Global / Project |
+| VS Code (Copilot) | `.vscode/mcp.json` (uses `servers` field, add `"type": "stdio"`) | Project |
+
+> If environment variables are not set, the server defaults to the system data directory for database and config files.
+
+</details>
 
 ### Privacy
 
@@ -107,6 +155,12 @@ The overview page combines total duration, work duration, browser usage, website
 
 The assistant answers directly from your local records and is useful for recap, summaries, and todo extraction.
 
+### Integrations Beta
+
+<img src="docs/Introduction_en/节点.png" alt="Work Review Integrations" />
+
+The integrations page manages device identity, local API, Bot connections, and MCP Server for external tool integration and cross-device report generation.
+
 ### Desktop Avatar Beta
 
 <img src="docs/桌宠.png" alt="Work Review Desktop Avatar" width="220" />
@@ -125,8 +179,8 @@ The desktop avatar floats on the desktop and gives lightweight state feedback in
 |------|-------|
 | **Overview** | Aggregated totals, work duration, browser usage, websites, hourly activity, and app distribution |
 | **Timeline** | Replay windows, screenshots, OCR, and visited pages by time |
-| **Assistant** | Ask natural-language questions against your recorded work trail |
-| **Report** | Generate, review, switch, and export daily reports based on the current UI language |
+| **Assistant** | Ask natural-language questions based on your local records |
+| **Report** | Generate, review, and export daily reports with AI prompt attachments |
 | **Settings** | Manage tracking, privacy, AI, avatar, lightweight mode, storage, and updates |
 
 ---
@@ -157,7 +211,7 @@ Download the latest build from [Releases](https://github.com/wm94i/Work_Review/r
 | Windows | `.exe` |
 | Linux (X11 / Mainstream Wayland) | `.deb` / `.AppImage` |
 
-- `Windows`: screenshot capture and avatar linkage do not require extra privacy permissions by default.
+- `Windows`: screenshot capture and avatar linkage do not require extra privacy permissions by default. The installer depends on Microsoft Edge WebView2 Runtime (if the download fails due to network issues, you can install it manually and retry).
 - `Linux`: extra privacy permissions are usually not required, but screenshot capture and avatar linkage still depend on the current session type and provider/tool availability.
 - `macOS`: timeline screenshots require `Screen Recording`, while avatar keyboard and mouse linkage requires both `Accessibility` and `Input Monitoring`.
 
@@ -282,6 +336,7 @@ src-tauri/src/        Rust backend (monitoring, database, analysis, privacy, upd
 
 ## Acknowledgements
 
+- Thanks to the [linux.do](https://linux.do/) community for feedback and discussion.
 - Desktop Avatar uses BongoCat interaction resources and some visual assets adapted from [ayangweb/BongoCat](https://github.com/ayangweb/BongoCat), which is released under the MIT License. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

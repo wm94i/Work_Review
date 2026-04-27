@@ -333,11 +333,11 @@
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" /></svg>
                 {/if}
               </span>
-              <span class="inline-flex items-center gap-2">
+              <span class="inline-flex items-center gap-1 whitespace-nowrap">
                 <span>{t(tab.labelKey)}</span>
                 {#if tab.beta}
-                  <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-                    {t('settings.tabs.beta')}
+                  <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-1 py-px text-[8px] font-semibold uppercase tracking-[0.06em] text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                    Beta
                   </span>
                 {/if}
               </span>
@@ -349,7 +349,7 @@
         {#if activeTab === 'general'}
           <SettingsGeneral bind:config on:change={() => {}} />
         {:else if activeTab === 'node'}
-          <SettingsNodeGateway bind:config on:change={() => {}} />
+          <SettingsNodeGateway bind:config {dataDir} on:change={() => {}} />
         {:else if activeTab === 'ai'}
           <div class="settings-card settings-ai-shell">
             <h3 class="settings-card-title">{t('settings.aiCardTitle')}</h3>

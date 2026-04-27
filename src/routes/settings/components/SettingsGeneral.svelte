@@ -10,6 +10,7 @@
   $: currentLocale = $locale;
   let workHours = '—';
   let autoStartEnabled = false;
+  const MAX_WORK_SEGMENTS = 8;
 
   onMount(async () => {
     try {
@@ -28,39 +29,121 @@
     }
   });
 
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-  const minutes = [0, 15, 30, 45];
+  function normalizeHour(value) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(Math.max(parsed, 0), 23);
+  }
 
-  $: startHour = config.work_start_hour ?? 9;
-  $: startMinute = config.work_start_minute ?? 0;
-  $: endHour = config.work_end_hour ?? 18;
-  $: endMinute = config.work_end_minute ?? 0;
-  $: startTimeDisplay = `${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`;
-  $: endTimeDisplay = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+  function normalizeMinute(value) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(Math.max(parsed, 0), 59);
+  }
+
+  function parseTimeInput(value) {
+    const [hour = '0', minute = '0'] = String(value ?? '').split(':');
+    return [normalizeHour(hour), normalizeMinute(minute)];
+  }
+
+  function segmentToTimeValue(hour, minute) {
+    return `${String(normalizeHour(hour)).padStart(2, '0')}:${String(normalizeMinute(minute)).padStart(2, '0')}`;
+  }
+
+  function normalizeSegment(segment) {
+    return {
+      start_hour: normalizeHour(segment?.start_hour),
+      start_minute: normalizeMinute(segment?.start_minute),
+      end_hour: normalizeHour(segment?.end_hour),
+      end_minute: normalizeMinute(segment?.end_minute),
+    };
+  }
+
+  function normalizeWorkSegments(segments) {
+    if (Array.isArray(segments) && segments.length > 0) {
+      return segments.slice(0, MAX_WORK_SEGMENTS).map(normalizeSegment);
+    }
+    return [
+      normalizeSegment({
+        start_hour: config?.work_start_hour ?? 9,
+        start_minute: config?.work_start_minute ?? 0,
+        end_hour: config?.work_end_hour ?? 18,
+        end_minute: config?.work_end_minute ?? 0,
+      }),
+    ];
+  }
+
+  function syncLegacyWorkRange(segments) {
+    if (!segments.length) return;
+    const first = segments[0];
+    const last = segments[segments.length - 1];
+    config.work_start_hour = first.start_hour;
+    config.work_start_minute = first.start_minute;
+    config.work_end_hour = last.end_hour;
+    config.work_end_minute = last.end_minute;
+  }
+
+  function segmentDurationMinutes(segment) {
+    const startTotal = segment.start_hour * 60 + segment.start_minute;
+    const endTotal = segment.end_hour * 60 + segment.end_minute;
+    const isZeroDuration = endTotal === startTotal;
+    if (isZeroDuration) return 0;
+    return endTotal < startTotal ? endTotal + 24 * 60 - startTotal : endTotal - startTotal;
+  }
+
+  $: workSegments = normalizeWorkSegments(config?.work_time_segments);
 
   $: {
     currentLocale;
-    const startTotal = startHour * 60 + startMinute;
-    const endTotal = endHour * 60 + endMinute;
-    const isZeroDuration = endTotal === startTotal;
-    const diffMinutes = isZeroDuration
-      ? 0
-      : endTotal < startTotal
-        ? endTotal + 24 * 60 - startTotal
-        : endTotal - startTotal;
+    const diffMinutes = workSegments.reduce((sum, segment) => sum + segmentDurationMinutes(segment), 0);
     const diffSeconds = diffMinutes * 60;
-    workHours = isZeroDuration ? formatDurationLocalized(0) : formatDurationLocalized(diffSeconds);
+    workHours = diffSeconds === 0 ? formatDurationLocalized(0) : formatDurationLocalized(diffSeconds);
   }
 
-  function updateStart(h, m) {
-    config.work_start_hour = h;
-    config.work_start_minute = m;
+  function updateSegment(index, type, value) {
+    const segments = normalizeWorkSegments(config.work_time_segments);
+    const target = { ...segments[index] };
+    const [hour, minute] = parseTimeInput(value);
+    if (type === 'start') {
+      target.start_hour = hour;
+      target.start_minute = minute;
+    } else {
+      target.end_hour = hour;
+      target.end_minute = minute;
+    }
+    segments[index] = normalizeSegment(target);
+    config.work_time_segments = segments;
+    syncLegacyWorkRange(segments);
     dispatch('change', config);
   }
 
-  function updateEnd(h, m) {
-    config.work_end_hour = h;
-    config.work_end_minute = m;
+  function addWorkSegment() {
+    const segments = normalizeWorkSegments(config.work_time_segments);
+    if (segments.length >= MAX_WORK_SEGMENTS) return;
+
+    const last = segments[segments.length - 1];
+    const nextStartHour = normalizeHour(last?.end_hour ?? 9);
+    const nextStartMinute = normalizeMinute(last?.end_minute ?? 0);
+    const nextEndHour = (nextStartHour + 1) % 24;
+    const nextSegment = normalizeSegment({
+      start_hour: nextStartHour,
+      start_minute: nextStartMinute,
+      end_hour: nextEndHour,
+      end_minute: nextStartMinute,
+    });
+
+    segments.push(nextSegment);
+    config.work_time_segments = segments;
+    syncLegacyWorkRange(segments);
+    dispatch('change', config);
+  }
+
+  function removeWorkSegment(index) {
+    const segments = normalizeWorkSegments(config.work_time_segments);
+    if (segments.length <= 1) return;
+    segments.splice(index, 1);
+    config.work_time_segments = segments;
+    syncLegacyWorkRange(segments);
     dispatch('change', config);
   }
 
@@ -137,35 +220,51 @@
         <span class="settings-muted">{t('settingsGeneral.totalWorkHours', { duration: workHours })}</span>
       </div>
 
-      <div class="flex items-center gap-3">
-        <div class="control-inline">
-          <span class="settings-subtle">{t('settingsGeneral.from')}</span>
-          <input
-            type="time"
-            value={startTimeDisplay}
-            on:change={(e) => {
-              const [h, m] = e.target.value.split(':').map(Number);
-              updateStart(h, m);
-            }}
-            class="w-24 bg-transparent text-sm font-mono text-slate-800 dark:text-white focus:outline-none"
-          />
-        </div>
+      <div class="space-y-2.5">
+        {#each workSegments as segment, index}
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="settings-subtle min-w-16">{t('settingsGeneral.segmentLabel', { index: index + 1 })}</span>
+            <div class="control-inline">
+              <span class="settings-subtle">{t('settingsGeneral.from')}</span>
+              <input
+                type="time"
+                value={segmentToTimeValue(segment.start_hour, segment.start_minute)}
+                on:change={(e) => updateSegment(index, 'start', e.target.value)}
+                class="w-24 bg-transparent text-sm font-mono text-slate-800 dark:text-white focus:outline-none"
+              />
+            </div>
 
-        <span class="text-slate-300 dark:text-slate-600">—</span>
+            <span class="text-slate-300 dark:text-slate-600">—</span>
 
-        <div class="control-inline">
-          <span class="settings-subtle">{t('settingsGeneral.to')}</span>
-          <input
-            type="time"
-            value={endTimeDisplay}
-            on:change={(e) => {
-              const [h, m] = e.target.value.split(':').map(Number);
-              updateEnd(h, m);
-            }}
-            class="w-24 bg-transparent text-sm font-mono text-slate-800 dark:text-white focus:outline-none"
-          />
-        </div>
+            <div class="control-inline">
+              <span class="settings-subtle">{t('settingsGeneral.to')}</span>
+              <input
+                type="time"
+                value={segmentToTimeValue(segment.end_hour, segment.end_minute)}
+                on:change={(e) => updateSegment(index, 'end', e.target.value)}
+                class="w-24 bg-transparent text-sm font-mono text-slate-800 dark:text-white focus:outline-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              class="settings-action-secondary px-2.5 py-1.5 text-xs"
+              disabled={workSegments.length <= 1}
+              on:click={() => removeWorkSegment(index)}
+            >
+              {t('settingsGeneral.removeSegment')}
+            </button>
+          </div>
+        {/each}
       </div>
+      <button
+        type="button"
+        class="settings-action-secondary mt-3 px-3 py-1.5 text-xs"
+        on:click={addWorkSegment}
+        disabled={workSegments.length >= MAX_WORK_SEGMENTS}
+      >
+        {t('settingsGeneral.addSegment')}
+      </button>
       <p class="settings-note">{t('settingsGeneral.workTimeHint')}</p>
     </div>
 

@@ -11,7 +11,7 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:build:local-mac": "tauri build --target aarch64-apple-darwin --config src-tauri/tauri.local.conf.json"
+    "tauri:build:local-mac": "tauri build --target aarch64-apple-darwin --bundles app --config src-tauri/tauri.local.conf.json"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.0.0",
@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-dialog": "^2.7.0",
+    "@tauri-apps/plugin-fs": "^2.5.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.4",
     "@tauri-apps/plugin-updater": "^2.10.0",

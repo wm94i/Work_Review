@@ -4,6 +4,7 @@
   import { formatDurationLocalized, locale, t } from '$lib/i18n/index.js';
   import LocalizedDatePicker from '../../lib/components/LocalizedDatePicker.svelte';
   import {
+    getFullSummary,
     getMainApps,
     getPrimarySummary,
     getSecondarySummary,
@@ -20,8 +21,26 @@
   let error = null;
   let selectedDate = getLocalDateString();
   let lastLoadedDate = null;
+  let expandedHours = new Set();
   $: currentLocale = $locale;
   $: peakDuration = summaries.reduce((max, summary) => Math.max(max, summary.total_duration || 0), 0);
+
+  function toggleExpand(hour) {
+    if (expandedHours.has(hour)) {
+      expandedHours.delete(hour);
+    } else {
+      expandedHours.add(hour);
+    }
+    expandedHours = expandedHours;
+  }
+
+  function needsExpand(summary) {
+    const full = getFullSummary(summary.summary);
+    const primary = getPrimarySummary(summary.summary);
+    const secondary = getSecondarySummary(summary.summary);
+    const displayed = [primary, secondary].filter(Boolean).join('');
+    return full.length > displayed.length + 2;
+  }
 
   function formatHourLabel(hour) {
     return `${String(hour).padStart(2, '0')}:00`;
@@ -100,7 +119,8 @@
       {#each summaries as summary}
         {@const apps = getMainApps(summary.main_apps)}
         {@const peak = isPeakSummary(summary)}
-        {@const secondarySummary = getSecondarySummary(summary.summary)}
+        {@const expanded = expandedHours.has(summary.hour)}
+        {@const canExpand = needsExpand(summary)}
         {@const rhythm = getSummaryRhythmMeta(summary.total_duration)}
         <section class={`summary-band ${peak ? 'summary-band-peak' : ''}`}>
           <div class="summary-band-anchor">
@@ -110,7 +130,13 @@
 
           <div class="summary-band-card">
             <div class="summary-band-card-header">
-              <p class="summary-primary-copy">{getPrimarySummary(summary.summary) || t('timelineSummary.noData')}</p>
+              <p class="summary-primary-copy">
+                {#if expanded}
+                  {getFullSummary(summary.summary) || t('timelineSummary.noData')}
+                {:else}
+                  {getPrimarySummary(summary.summary) || t('timelineSummary.noData')}
+                {/if}
+              </p>
               {#if peak}
                 <span class="summary-peak-badge">{t('timelineSummary.peakBadge')}</span>
               {/if}
@@ -125,8 +151,24 @@
               {/if}
             </div>
 
-            {#if secondarySummary}
-              <p class="summary-secondary-copy">{secondarySummary}</p>
+            {#if !expanded}
+              {@const secondarySummary = getSecondarySummary(summary.summary)}
+              {#if secondarySummary}
+                <p class="summary-secondary-copy">{secondarySummary}</p>
+              {/if}
+            {/if}
+
+            {#if canExpand}
+              <button
+                type="button"
+                class="summary-expand-btn"
+                on:click={() => toggleExpand(summary.hour)}
+              >
+                {expanded ? t('timelineSummary.collapse') : t('timelineSummary.expandFull')}
+                <svg class="w-3.5 h-3.5 transition-transform duration-200 {expanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             {/if}
 
             {#if apps.length > 0}
@@ -375,6 +417,33 @@
     color: #57534e;
     font-size: 0.84rem;
     line-height: 1.7;
+  }
+
+  .summary-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.65rem;
+    padding: 0;
+    border: none;
+    background: none;
+    color: #78716c;
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 180ms ease;
+  }
+
+  .summary-expand-btn:hover {
+    color: #44403c;
+  }
+
+  :global(.dark) .summary-expand-btn {
+    color: #94a3b8;
+  }
+
+  :global(.dark) .summary-expand-btn:hover {
+    color: #cbd5e1;
   }
 
   .summary-app-tags {

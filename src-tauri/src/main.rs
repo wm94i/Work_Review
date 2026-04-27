@@ -902,6 +902,10 @@ pub(crate) fn resolve_activity_classification(
     if let Some(semantic_category) =
         monitor::find_website_semantic_override(&config.website_semantic_rules, browser_url)
     {
+        classification.base_category = monitor::semantic_category_to_base_category(
+            &semantic_category,
+            &classification.base_category,
+        );
         classification.semantic_category = semantic_category.clone();
         classification.confidence = classification.confidence.max(100);
         classification

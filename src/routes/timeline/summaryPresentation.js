@@ -1,10 +1,3 @@
-function clampSummary(text, maxLength = 72) {
-  if (!text || text.length <= maxLength) {
-    return text || '';
-  }
-  return `${text.slice(0, maxLength - 1).trim()}…`;
-}
-
 function normalizeSummary(text) {
   return (text || '').replace(/\s+/g, ' ').trim();
 }
@@ -30,6 +23,10 @@ function ensureChineseStop(text) {
   return `${text.replace(/[。！？!?]+$/g, '').trim()}。`;
 }
 
+export function getFullSummary(text) {
+  return normalizeSummary(text);
+}
+
 export function getPrimarySummary(text) {
   const normalized = normalizeSummary(text);
   if (!normalized) {
@@ -40,10 +37,10 @@ export function getPrimarySummary(text) {
   const clauses = splitSummaryClauses(firstSentence);
 
   if (clauses.length >= 3) {
-    return clampSummary(clauses.slice(0, 2).join('，'));
+    return clauses.slice(0, 2).join('，');
   }
 
-  return clampSummary(firstSentence);
+  return firstSentence;
 }
 
 export function getSecondarySummary(text) {
@@ -57,11 +54,11 @@ export function getSecondarySummary(text) {
   const clauses = splitSummaryClauses(firstSentence);
 
   if (clauses.length >= 3) {
-    return ensureChineseStop(clampSummary(clauses.slice(2).join('，'), 64));
+    return ensureChineseStop(clauses.slice(2).join('，'));
   }
 
   if (sentences.length > 1) {
-    return ensureChineseStop(clampSummary(sentences[1], 64));
+    return ensureChineseStop(sentences.slice(1).join('。'));
   }
 
   return '';

@@ -2061,13 +2061,8 @@ fn apply_ignored_apps_to_stats(mut stats: DailyStats, ignored_apps: &[String]) -
 }
 
 fn load_daily_stats_for_overview(state: &AppState, date: &str) -> Result<DailyStats, AppError> {
-    state.database.get_daily_stats_with_work_time(
-        date,
-        state.config.work_start_hour,
-        state.config.work_end_hour,
-        state.config.work_start_minute,
-        state.config.work_end_minute,
-    )
+    let segments = state.config.effective_work_segments();
+    state.database.get_daily_stats_with_segments(date, &segments)
 }
 
 fn overview_week_bounds_for_date(anchor: chrono::NaiveDate) -> (String, String) {
@@ -2455,14 +2450,8 @@ pub async fn get_daily_stats(
     state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<DailyStats, AppError> {
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
-    // 使用配置的工作时间
-    state.database.get_daily_stats_with_work_time(
-        &date,
-        state.config.work_start_hour,
-        state.config.work_end_hour,
-        state.config.work_start_minute,
-        state.config.work_end_minute,
-    )
+    let segments = state.config.effective_work_segments();
+    state.database.get_daily_stats_with_segments(&date, &segments)
 }
 
 /// 获取指定日期的时间线
@@ -5530,9 +5519,11 @@ fn reclassify_domain_history_in_state(
     let semantic_category = semantic_category.trim();
 
     for activity in &activities {
+        let next_base_category =
+            crate::monitor::semantic_category_to_base_category(semantic_category, &activity.category);
         state.database.update_activity_classification(
             activity.id.expect("活动记录应包含主键"),
-            &activity.category,
+            &next_base_category,
             Some(semantic_category),
             Some(100),
         )?;
@@ -6266,12 +6257,8 @@ pub async fn open_permission_settings(permission: String) -> Result<(), AppError
 #[tauri::command]
 pub async fn is_work_time(state: State<'_, Arc<Mutex<AppState>>>) -> Result<bool, AppError> {
     let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
-    Ok(crate::screen_lock::ScreenLockMonitor::is_work_time(
-        state.config.work_start_hour,
-        state.config.work_start_minute,
-        state.config.work_end_hour,
-        state.config.work_end_minute,
-    ))
+    let segments = state.config.effective_work_segments();
+    Ok(crate::screen_lock::ScreenLockMonitor::is_work_time_in_segments(&segments))
 }
 
 /// 检查 PaddleOCR 是否可用

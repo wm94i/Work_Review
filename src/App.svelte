@@ -182,6 +182,36 @@
     e.preventDefault();
   }
 
+  function normalizeTimePart(value, upperBound) {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(Math.max(parsed, 0), upperBound);
+  }
+
+  function resolveAutoReportWorkEnd(config) {
+    const fallbackHour = normalizeTimePart(config?.work_end_hour ?? 18, 23);
+    const fallbackMinute = normalizeTimePart(config?.work_end_minute ?? 0, 59);
+    const segments = Array.isArray(config?.work_time_segments) ? config.work_time_segments : [];
+    if (segments.length === 0) {
+      return { hour: fallbackHour, minute: fallbackMinute };
+    }
+
+    const latest = segments.reduce((best, segment) => {
+      const hour = normalizeTimePart(segment?.end_hour, 23);
+      const minute = normalizeTimePart(segment?.end_minute, 59);
+      const score = hour * 60 + minute;
+      if (!best || score > best.score) {
+        return { score, hour, minute };
+      }
+      return best;
+    }, null);
+
+    if (!latest) {
+      return { hour: fallbackHour, minute: fallbackMinute };
+    }
+    return { hour: latest.hour, minute: latest.minute };
+  }
+
   onMount(() => {
     // 全局阻止文件拖放导致页面导航（如拖入 PDF 会替换整个应用）
     window.addEventListener('dragover', preventFileDrop);
@@ -315,8 +345,8 @@
         const today = getLocalDate();
 
         // 检查是否达到工作结束时间
-        const workEndHour = runtimeConfig?.work_end_hour ?? 18;
-        const workEndMinute = runtimeConfig?.work_end_minute ?? 0;
+        const { hour: workEndHour, minute: workEndMinute } =
+          resolveAutoReportWorkEnd(runtimeConfig);
 
         // 条件：当前小时等于工作结束时间，当前分钟 >= 结束分钟，且今天未自动生成过
         if (currentHour === workEndHour && currentMinute >= workEndMinute && lastAutoGenDate !== today) {

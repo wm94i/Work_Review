@@ -184,11 +184,36 @@ impl ScreenLockMonitor {
     /// 检查是否在工作时间内
     pub fn is_work_time(start_hour: u8, start_minute: u8, end_hour: u8, end_minute: u8) -> bool {
         let now = chrono::Local::now();
-        let current = (now.hour() as u8, now.minute() as u8);
-        let start = (start_hour, start_minute);
-        let end = (end_hour, end_minute);
+        Self::is_work_time_range(
+            (now.hour() as u8, now.minute() as u8),
+            (start_hour.min(23), start_minute.min(59)),
+            (end_hour.min(23), end_minute.min(59)),
+        )
+    }
 
-        if start <= end {
+    /// 检查是否在任一工作时间段内
+    pub fn is_work_time_in_segments(segments: &[crate::config::WorkTimeSegment]) -> bool {
+        let now = chrono::Local::now();
+        Self::is_work_time_in_segments_at((now.hour() as u8, now.minute() as u8), segments)
+    }
+
+    fn is_work_time_in_segments_at(
+        current: (u8, u8),
+        segments: &[crate::config::WorkTimeSegment],
+    ) -> bool {
+        segments.iter().any(|segment| {
+            let start = (segment.start_hour.min(23), segment.start_minute.min(59));
+            let end = (segment.end_hour.min(23), segment.end_minute.min(59));
+            Self::is_work_time_range(current, start, end)
+        })
+    }
+
+    fn is_work_time_range(current: (u8, u8), start: (u8, u8), end: (u8, u8)) -> bool {
+        if start == end {
+            return false;
+        }
+
+        if start < end {
             // 正常时间范围，如 9:00-18:00 或 8:30-17:30
             current >= start && current < end
         } else {
@@ -207,10 +232,42 @@ impl Default for ScreenLockMonitor {
 #[cfg(test)]
 mod tests {
     use super::ScreenLockMonitor;
+    use crate::config::WorkTimeSegment;
 
     #[test]
     fn 开始时间等于结束时间时不应视为工作时间() {
         assert!(!ScreenLockMonitor::is_work_time(9, 0, 9, 0));
         assert!(!ScreenLockMonitor::is_work_time(0, 0, 0, 0));
+    }
+
+    #[test]
+    fn 多段工作时间应在任一时段内返回真() {
+        let segments = vec![
+            WorkTimeSegment {
+                start_hour: 9,
+                start_minute: 0,
+                end_hour: 12,
+                end_minute: 0,
+            },
+            WorkTimeSegment {
+                start_hour: 13,
+                start_minute: 0,
+                end_hour: 18,
+                end_minute: 0,
+            },
+        ];
+
+        assert!(ScreenLockMonitor::is_work_time_in_segments_at(
+            (10, 30),
+            &segments
+        ));
+        assert!(ScreenLockMonitor::is_work_time_in_segments_at(
+            (13, 10),
+            &segments
+        ));
+        assert!(!ScreenLockMonitor::is_work_time_in_segments_at(
+            (12, 30),
+            &segments
+        ));
     }
 }

@@ -470,6 +470,41 @@ pub fn find_website_semantic_override(
     })
 }
 
+/// 将网站语义分类映射到基础分类，便于工作/休息时长统计直接生效。
+/// 对无法识别的语义分类，保留原有基础分类。
+pub fn semantic_category_to_base_category(
+    semantic_category: &str,
+    fallback_category: &str,
+) -> String {
+    let semantic = semantic_category.trim();
+    if semantic.is_empty() {
+        return normalize_category_key(fallback_category);
+    }
+
+    let mapped = match semantic {
+        "休息娱乐" | "视频内容" | "音乐音频" => Some("entertainment"),
+        "即时聊天" | "会议沟通" => Some("communication"),
+        "设计创作" => Some("design"),
+        "编码开发" => Some("development"),
+        "内容撰写" => Some("office"),
+        "资料阅读" | "资料调研" | "任务规划" | "AI 协作" | "未知活动" => Some("browser"),
+        _ => None,
+    };
+
+    if let Some(category) = mapped {
+        return category.to_string();
+    }
+
+    let fallback = fallback_category.trim().to_lowercase();
+    let normalized = normalize_category_key(&fallback);
+    if normalized == "other" && !fallback.is_empty() && fallback != "other" {
+        // 保留可能存在的自定义分类 key。
+        fallback
+    } else {
+        normalized
+    }
+}
+
 fn firefox_family_profile_dir_from_ini(base_dir: &Path, ini_content: &str) -> Option<PathBuf> {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum SectionKind {
@@ -1383,7 +1418,8 @@ mod tests {
         normalize_possible_url, parse_macos_window_bounds_fields,
         parse_gnome_focused_window_dbus_output, parse_hyprland_window_bounds,
         parse_kdotool_geometry_output, parse_xdotool_geometry_shell_output,
-        remember_browser_url_log, resolve_browser_url_for_window_linux, WindowBounds,
+        remember_browser_url_log, resolve_browser_url_for_window_linux,
+        semantic_category_to_base_category, WindowBounds,
     };
     use std::collections::HashMap;
     use std::path::Path;
@@ -1456,6 +1492,26 @@ mod tests {
         assert_eq!(
             categorize_app_with_rules(&rules, "firefox", "搜索页", &[]),
             "office"
+        );
+    }
+
+    #[test]
+    fn 网站语义分类应映射为可统计的基础分类() {
+        assert_eq!(
+            semantic_category_to_base_category("休息娱乐", "browser"),
+            "entertainment"
+        );
+        assert_eq!(
+            semantic_category_to_base_category("编码开发", "browser"),
+            "development"
+        );
+        assert_eq!(
+            semantic_category_to_base_category("资料阅读", "browser"),
+            "browser"
+        );
+        assert_eq!(
+            semantic_category_to_base_category("未知自定义语义", "browser"),
+            "browser"
         );
     }
 

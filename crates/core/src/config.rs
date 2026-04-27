@@ -535,6 +535,9 @@ pub struct AppConfig {
     /// 飞书 Encrypt Key
     #[serde(default)]
     pub feishu_encrypt_key: Option<String>,
+    /// 是否启用 MCP Server
+    #[serde(default)]
+    pub mcp_server_enabled: bool,
     /// 已注册的远程设备列表
     #[serde(default)]
     pub node_devices: Vec<NodeDevice>,
@@ -685,6 +688,7 @@ impl Default for AppConfig {
             feishu_app_secret: None,
             feishu_verification_token: None,
             feishu_encrypt_key: None,
+            mcp_server_enabled: false,
             node_devices: Vec::new(),
             node_gateway: NodeGatewayConfig::default(),
             auto_start: false,

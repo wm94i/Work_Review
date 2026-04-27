@@ -1063,7 +1063,7 @@ impl Database {
                     executable_path,
                     semantic_category
              FROM activities
-             WHERE timestamp >= ?1 AND timestamp < ?2
+             WHERE timestamp > ?1 AND (timestamp - duration) < ?2
              ORDER BY timestamp ASC",
         )?;
 
@@ -1088,7 +1088,22 @@ impl Database {
         let mut category_usage_map: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
         let mut browser_duration: i64 = 0;
-        let mut hourly_buckets: [i64; 24] = [0; 24];
+        let mut hourly_ranges: [Vec<(i64, i64)>; 24] = std::array::from_fn(|_| Vec::new());
+
+        let mut browser_map: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, std::collections::HashMap<String, i64>>,
+        > = std::collections::HashMap::new();
+        let mut browser_duration_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        let mut browser_path_map: std::collections::HashMap<String, (Option<String>, i64)> =
+            std::collections::HashMap::new();
+        let mut url_duration_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        let mut domain_semantic_map: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, i64>,
+        > = std::collections::HashMap::new();
 
         let activity_rows: Vec<_> = activity_rows
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1103,7 +1118,7 @@ impl Database {
             duration,
             browser_url,
             executable_path,
-            _semantic_category,
+            semantic_category,
         ) in activity_rows
         {
             let day_duration = calculate_overlap_duration(timestamp, duration, start_ts, end_ts);
@@ -1135,10 +1150,10 @@ impl Database {
                         })
                         .unwrap_or_default();
                     let bucket_end = (t / 3600 + 1) * 3600;
-                    let bucket_duration = overlap_end.min(bucket_end) - t;
+                    let range_end = overlap_end.min(bucket_end);
                     if let Ok(h) = hour.parse::<usize>() {
                         if h < 24 {
-                            hourly_buckets[h] += bucket_duration;
+                            hourly_ranges[h].push((t, range_end));
                         }
                     }
                     t = bucket_end;
@@ -1158,6 +1173,60 @@ impl Database {
 
             if crate::categorize::is_browser_app(&app_name) {
                 browser_duration += day_duration;
+                let normalized_browser_name = crate::categorize::normalize_display_app_name(&app_name);
+                *browser_duration_map
+                    .entry(normalized_browser_name.clone())
+                    .or_insert(0) += day_duration;
+                {
+                    let browser_entry = browser_path_map
+                        .entry(normalized_browser_name.clone())
+                        .or_insert((None, 0));
+                    if executable_path
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_some()
+                        && timestamp >= browser_entry.1
+                    {
+                        browser_entry.0 = executable_path.clone();
+                        browser_entry.1 = timestamp;
+                    }
+                }
+
+                let page_hint = browser_url
+                    .as_deref()
+                    .map(|u| normalize_url(u))
+                    .filter(|url| !url.is_empty())
+                    .or_else(|| crate::categorize::infer_browser_page_hint(&window_title))
+                    .or_else(|| {
+                        ocr_text
+                            .as_deref()
+                            .and_then(crate::categorize::infer_browser_page_hint_from_text)
+                    });
+
+                let Some(page_hint) = page_hint else {
+                    continue;
+                };
+
+                let domain = crate::categorize::browser_page_domain_label(&page_hint);
+                let domain_map = browser_map.entry(normalized_browser_name).or_default();
+                let page_map = domain_map.entry(domain).or_default();
+                *page_map.entry(page_hint.clone()).or_insert(0) += day_duration;
+                *url_duration_map.entry(page_hint).or_insert(0) += day_duration;
+
+                if let Some(semantic_cat) = semantic_category
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    *domain_semantic_map
+                        .entry(crate::categorize::browser_page_domain_label(
+                            browser_url.as_deref().unwrap_or_default(),
+                        ))
+                        .or_default()
+                        .entry(semantic_cat.to_string())
+                        .or_insert(0) += day_duration;
+                }
             }
         }
 
@@ -1180,14 +1249,111 @@ impl Database {
             .collect();
         category_usage.sort_by(|a, b| b.duration.cmp(&a.duration));
 
-        let hourly_activity_distribution: Vec<HourlyActivityBucket> = hourly_buckets
+        let hourly_activity_distribution: Vec<HourlyActivityBucket> = hourly_ranges
             .iter()
             .enumerate()
-            .map(|(hour, &duration)| HourlyActivityBucket {
+            .map(|(hour, ranges)| HourlyActivityBucket {
                 hour: hour as i32,
+                duration: calculate_covered_duration(ranges.clone()),
+            })
+            .collect();
+
+        let pick_semantic = |semantic_map: &std::collections::HashMap<String, std::collections::HashMap<String, i64>>,
+                             domain: &str| -> Option<String> {
+            semantic_map.get(domain).and_then(|candidates| {
+                candidates
+                    .iter()
+                    .max_by(|(left_name, left_duration), (right_name, right_duration)| {
+                        left_duration
+                            .cmp(right_duration)
+                            .then_with(|| right_name.cmp(left_name))
+                    })
+                    .map(|(semantic_category, _)| semantic_category.clone())
+            })
+        };
+
+        let browser_durations: Vec<(String, i64)> = browser_duration_map.into_iter().collect();
+        let mut browser_usage: Vec<BrowserUsage> = browser_durations
+            .iter()
+            .map(|(browser_name, total_duration)| {
+                let domain_map = browser_map.get(browser_name);
+                let mut domains: Vec<DomainUsage> = match domain_map {
+                    Some(dm) => dm
+                        .iter()
+                        .map(|(domain, urls)| {
+                            let mut url_details: Vec<UrlDetail> = urls
+                                .iter()
+                                .map(|(url, duration)| UrlDetail {
+                                    url: url.clone(),
+                                    duration: *duration,
+                                })
+                                .collect();
+                            url_details.sort_by(|a, b| {
+                                b.duration.cmp(&a.duration).then_with(|| a.url.cmp(&b.url))
+                            });
+                            let domain_duration: i64 = url_details.iter().map(|u| u.duration).sum();
+                            DomainUsage {
+                                domain: domain.clone(),
+                                duration: domain_duration,
+                                semantic_category: pick_semantic(&domain_semantic_map, domain),
+                                urls: url_details,
+                            }
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                domains.sort_by(|a, b| b.duration.cmp(&a.duration));
+
+                BrowserUsage {
+                    browser_name: browser_name.clone(),
+                    duration: *total_duration,
+                    executable_path: browser_path_map
+                        .get(browser_name)
+                        .and_then(|(path, _)| path.clone()),
+                    domains,
+                }
+            })
+            .collect();
+        browser_usage.sort_by(|a, b| b.duration.cmp(&a.duration));
+
+        let mut url_usage_rows: Vec<(String, i64)> = url_duration_map.into_iter().collect();
+        url_usage_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        url_usage_rows.truncate(10);
+        let url_usage: Vec<UrlUsage> = url_usage_rows
+            .into_iter()
+            .map(|(url, duration)| UrlUsage {
+                domain: crate::categorize::browser_page_domain_label(&url),
+                url,
                 duration,
             })
             .collect();
+
+        let mut domain_map_compat: std::collections::HashMap<String, (i64, Vec<UrlDetail>)> =
+            std::collections::HashMap::new();
+        for u in &url_usage {
+            let entry = domain_map_compat
+                .entry(u.domain.clone())
+                .or_insert((0, Vec::new()));
+            entry.0 += u.duration;
+            entry.1.push(UrlDetail {
+                url: u.url.clone(),
+                duration: u.duration,
+            });
+        }
+        let mut domain_usage: Vec<DomainUsage> = domain_map_compat
+            .into_iter()
+            .map(|(domain, (duration, urls))| {
+                let semantic_category = pick_semantic(&domain_semantic_map, &domain);
+                DomainUsage {
+                    domain,
+                    duration,
+                    semantic_category,
+                    urls,
+                }
+            })
+            .collect();
+        domain_usage.sort_by(|a, b| b.duration.cmp(&a.duration));
+        domain_usage.truncate(10);
 
         Ok(DailyStats {
             total_duration,
@@ -1195,9 +1361,9 @@ impl Database {
             app_usage,
             category_usage,
             browser_duration,
-            url_usage: Vec::new(),
-            domain_usage: Vec::new(),
-            browser_usage: Vec::new(),
+            url_usage,
+            domain_usage,
+            browser_usage,
             work_time_duration,
             hourly_activity_distribution,
         })

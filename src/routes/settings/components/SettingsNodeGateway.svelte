@@ -5,6 +5,7 @@
   import { showToast } from '$lib/stores/toast.js';
 
   export let config;
+  export let dataDir = '';
 
   const dispatch = createEventDispatcher();
 
@@ -20,6 +21,21 @@
   let examplesExpanded = false;
   let tgStatusPollId = null;
   $: currentLocale = $locale;
+
+  $: mcpDbPath = dataDir ? `${dataDir}/work_review.db` : '';
+  $: mcpConfigPath = dataDir ? `${dataDir}/config.json` : '';
+  $: mcpConfigJson = JSON.stringify({
+    mcpServers: {
+      'work-review': {
+        command: '/path/to/work-review-mcp-server',
+        args: [],
+        env: {
+          WORK_REVIEW_DB_PATH: mcpDbPath || '/path/to/work_review.db',
+          WORK_REVIEW_CONFIG_PATH: mcpConfigPath || '/path/to/config.json',
+        },
+      },
+    },
+  }, null, 2);
 
   function normalizeConfig() {
     if (!config.node_gateway || typeof config.node_gateway !== 'object') {
@@ -89,7 +105,7 @@
         stopTelegramStatusPolling();
       }
     } catch (error) {
-      console.error('读取设备节点页面数据失败:', error);
+      console.error('读取集成页面数据失败:', error);
       showToast(t('nodeGatewayPage.loadFailed', { error }), 'error');
     } finally {
       loading = false;
@@ -108,7 +124,7 @@
       }
       return true;
     } catch (error) {
-      console.error('保存设备节点配置失败:', error);
+      console.error('保存集成配置失败:', error);
       showToast(t('nodeGatewayPage.saveFailed', { error }), 'error');
       return false;
     } finally {
@@ -173,6 +189,15 @@
     }
   }
 
+  async function copyMcpConfig() {
+    try {
+      await navigator.clipboard.writeText(mcpConfigJson);
+      showToast(t('nodeGatewayPage.mcpServerConfigCopied'), 'success');
+    } catch (error) {
+      showToast(t('nodeGatewayPage.tokenCopyFailed', { error }), 'error');
+    }
+  }
+
   onMount(async () => {
     normalizeConfig();
     await loadStatus();
@@ -206,46 +231,57 @@
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
     </div>
   {:else if nodeStatus && localStatus}
-    <div class="settings-section space-y-3">
+    <div class="settings-section space-y-4">
 
-      <!-- Row 1: Device Identity + Local API -->
-      <div class="grid gap-3 lg:grid-cols-2">
-
-        <!-- Device Identity -->
-        <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
-          <div class="flex items-center gap-2 mb-3">
-            <div class="flex h-6 w-6 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
-              <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.deviceIdentity')}</span>
-            <span class="settings-chip-neutral">{nodeStatus.protocolVersion}</span>
+      <!-- Device Identity -->
+      <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="flex h-6 w-6 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
+            <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
           </div>
-          <div class="space-y-2">
-            <div class="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-              <span class="text-xs text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceId')}</span>
-              <span class="font-mono text-xs text-slate-700 dark:text-slate-300" title={nodeStatus.deviceId}>{nodeStatus.deviceId}</span>
-            </div>
-            <label class="block">
-              <span class="text-xs text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceName')}</span>
-              <input
-                type="text"
-                bind:value={config.node_gateway.device_name}
-                class="mt-0.5 w-full rounded-lg bg-white/70 px-3 py-1.5 text-sm text-slate-800 ring-1 ring-slate-200/70 focus:ring-primary-300 dark:bg-slate-900/20 dark:text-white dark:ring-slate-700/70 dark:focus:ring-primary-600 focus:outline-none"
-                placeholder={nodeStatus.deviceName}
-              />
-            </label>
-            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.deviceNameHint')}</p>
+          <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.deviceIdentity')}</span>
+          <span class="settings-chip-neutral">{nodeStatus.protocolVersion}</span>
+        </div>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+            <span class="text-xs text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceId')}</span>
+            <span class="font-mono text-xs text-slate-700 dark:text-slate-300" title={nodeStatus.deviceId}>{nodeStatus.deviceId}</span>
+          </div>
+          <label class="block">
+            <span class="text-xs text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceName')}</span>
+            <input
+              type="text"
+              bind:value={config.node_gateway.device_name}
+              class="mt-0.5 w-full rounded-lg bg-white/70 px-3 py-1.5 text-sm text-slate-800 ring-1 ring-slate-200/70 focus:ring-primary-300 dark:bg-slate-900/20 dark:text-white dark:ring-slate-700/70 dark:focus:ring-primary-600 focus:outline-none"
+              placeholder={nodeStatus.deviceName}
+            />
+          </label>
+          <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.deviceNameHint')}</p>
+        </div>
+      </div>
+
+      <!-- ========== Bot 集成 大卡片 ========== -->
+      <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 space-y-4 dark:border-slate-700/80 dark:bg-slate-800/40">
+        <!-- Bot 集成 标题 -->
+        <div class="flex items-center gap-2">
+          <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/30">
+            <svg class="w-4 h-4 text-indigo-600 dark:text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
+            </svg>
+          </div>
+          <div>
+            <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.botIntegration')}</span>
           </div>
         </div>
 
         <!-- Local API -->
-        <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
-          <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="rounded-xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+          <div class="flex items-center justify-between gap-3 mb-2">
             <div class="flex items-center gap-2">
-              <div class="flex h-6 w-6 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
-                <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div class="flex h-5 w-5 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
+                <svg class="w-3 h-3 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
                 </svg>
               </div>
@@ -302,8 +338,6 @@
               <span class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.localhostAddress')}</span>
               <span class="text-sm font-mono text-slate-700 dark:text-slate-300">{localStatus.baseUrl}</span>
             </div>
-
-            <!-- Token -->
             <div class="rounded-lg bg-white/70 px-3 py-2 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
               <div class="flex items-center justify-between gap-2 mb-1">
                 <span class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.localhostToken')}</span>
@@ -321,73 +355,164 @@
           </div>
           {/if}
         </div>
-      </div>
 
-      <!-- Row 2: Bot Integrations (if local API enabled) -->
-      {#if config.localhost_api_enabled}
-      <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
-        <div class="flex items-center gap-2 mb-3">
-          <div class="flex h-6 w-6 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
-            <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
-            </svg>
+        {#if config.localhost_api_enabled}
+        <!-- Telegram Bot -->
+        <div class="rounded-xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-[#229ED9]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+              </svg>
+              <span class="text-sm text-slate-700 dark:text-slate-200">Telegram</span>
+              {#if config.telegram_bot_enabled}
+                <span class="settings-chip-success">{t('nodeGatewayPage.telegramEnabled')}</span>
+              {/if}
+            </div>
+            <button
+              type="button"
+              on:click={() => {
+                config.telegram_bot_enabled = !config.telegram_bot_enabled;
+                persistConfig();
+              }}
+              disabled={saving}
+              class="switch-track {config.telegram_bot_enabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'} {saving ? 'opacity-60 cursor-not-allowed' : ''}"
+            >
+              <span class="switch-thumb {config.telegram_bot_enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+            </button>
           </div>
-          <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.botIntegration')}</span>
+          {#if config.telegram_bot_enabled}
+          <div class="mt-2 space-y-2">
+            <label class="block">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.telegramBotToken')}</span>
+              <div class="mt-0.5 relative">
+                {#if tgTokenVisible}
+                  <input
+                    type="text"
+                    bind:value={config.telegram_bot_token}
+                    on:blur={() => persistConfig()}
+                    class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                    placeholder="123456:ABC-DEF..."
+                  />
+                {:else}
+                  <input
+                    type="password"
+                    bind:value={config.telegram_bot_token}
+                    on:blur={() => persistConfig()}
+                    class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                    placeholder="123456:ABC-DEF..."
+                  />
+                {/if}
+                <button
+                  type="button"
+                  class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                  on:click={() => (tgTokenVisible = !tgTokenVisible)}
+                >
+                  {#if tgTokenVisible}
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                  {:else}
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                  {/if}
+                </button>
+              </div>
+            </label>
+            {#if tgBotStatus}
+              {#if tgBotStatus.starting}
+                <div class="flex items-center gap-1.5 text-[11px] text-blue-500 dark:text-blue-400">
+                  <div class="animate-spin h-3 w-3 border-[1.5px] border-blue-400 border-t-transparent rounded-full"></div>
+                  ...
+                </div>
+              {:else if tgBotStatus.running}
+                <div class="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                  Bot running
+                </div>
+              {:else if tgBotStatus.lastError}
+                <div class="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                  <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                  {tgBotStatus.lastError}
+                </div>
+              {/if}
+            {/if}
+            <label class="block">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.telegramBotProxy')}</span>
+              <input
+                type="text"
+                bind:value={config.telegram_bot_proxy}
+                on:blur={() => persistConfig()}
+                class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                placeholder="http://127.0.0.1:7890"
+              />
+            </label>
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.telegramBotProxyHint')}</p>
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.telegramBotHint')}</p>
+          </div>
+          {/if}
         </div>
 
-        <div class="space-y-3">
-          <!-- Telegram Bot -->
-          <div class="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-            <div class="flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-[#229ED9]" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-                </svg>
-                <span class="text-sm text-slate-700 dark:text-slate-200">Telegram</span>
-                {#if config.telegram_bot_enabled}
-                  <span class="settings-chip-success">{t('nodeGatewayPage.telegramEnabled')}</span>
-                {/if}
-              </div>
-              <button
-                type="button"
-                on:click={() => {
-                  config.telegram_bot_enabled = !config.telegram_bot_enabled;
-                  persistConfig();
-                }}
-                disabled={saving}
-                class="switch-track {config.telegram_bot_enabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'} {saving ? 'opacity-60 cursor-not-allowed' : ''}"
-              >
-                <span class="switch-thumb {config.telegram_bot_enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
-              </button>
+        <!-- Feishu Bot -->
+        <div class="rounded-xl bg-white/70 px-3.5 py-3 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <svg class="w-4 h-4 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.487 17.14c.88-1.668 1.388-3.566 1.388-5.576C21.875 5.197 17.263.583 11.896.583 6.53.583 1.917 5.197 1.917 10.564c0 5.367 4.613 9.98 9.98 9.98 1.99 0 3.846-.583 5.417-1.585l3.428 1.485a.77.77 0 00.97-1.034l-1.225-2.27z"/>
+              </svg>
+              <span class="text-sm text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.feishuBot')}</span>
+              {#if config.feishu_bot_enabled}
+                <span class="settings-chip-success">{t('nodeGatewayPage.feishuEnabled')}</span>
+              {/if}
             </div>
-            {#if config.telegram_bot_enabled}
-            <div class="mt-2 space-y-2">
+            <button
+              type="button"
+              on:click={() => {
+                config.feishu_bot_enabled = !config.feishu_bot_enabled;
+                persistConfig();
+              }}
+              disabled={saving}
+              class="switch-track {config.feishu_bot_enabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'} {saving ? 'opacity-60 cursor-not-allowed' : ''}"
+            >
+              <span class="switch-thumb {config.feishu_bot_enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+            </button>
+          </div>
+          {#if config.feishu_bot_enabled}
+          <div class="mt-2 space-y-2">
+            <div class="grid gap-2 grid-cols-2">
               <label class="block">
-                <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.telegramBotToken')}</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuAppId')}</span>
+                <input
+                  type="text"
+                  bind:value={config.feishu_app_id}
+                  on:blur={() => persistConfig()}
+                  class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                  placeholder="cli_xxx"
+                />
+              </label>
+              <label class="block">
+                <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuAppSecret')}</span>
                 <div class="mt-0.5 relative">
-                  {#if tgTokenVisible}
+                  {#if feishuSecretVisible}
                     <input
                       type="text"
-                      bind:value={config.telegram_bot_token}
+                      bind:value={config.feishu_app_secret}
                       on:blur={() => persistConfig()}
                       class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                      placeholder="123456:ABC-DEF..."
+                      placeholder="Secret"
                     />
                   {:else}
                     <input
                       type="password"
-                      bind:value={config.telegram_bot_token}
+                      bind:value={config.feishu_app_secret}
                       on:blur={() => persistConfig()}
                       class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                      placeholder="123456:ABC-DEF..."
+                      placeholder="Secret"
                     />
                   {/if}
                   <button
                     type="button"
                     class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                    on:click={() => (tgTokenVisible = !tgTokenVisible)}
+                    on:click={() => (feishuSecretVisible = !feishuSecretVisible)}
                   >
-                    {#if tgTokenVisible}
+                    {#if feishuSecretVisible}
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
                     {:else}
                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
@@ -395,242 +520,207 @@
                   </button>
                 </div>
               </label>
-              {#if tgBotStatus}
-                {#if tgBotStatus.starting}
-                  <div class="flex items-center gap-1.5 text-[11px] text-blue-500 dark:text-blue-400">
-                    <div class="animate-spin h-3 w-3 border-[1.5px] border-blue-400 border-t-transparent rounded-full"></div>
-                    连接中...
-                  </div>
-                {:else if tgBotStatus.running}
-                  <div class="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                    Bot 运行中
-                  </div>
-                {:else if tgBotStatus.lastError}
-                  <div class="flex items-center gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
-                    <span class="inline-block h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                    {tgBotStatus.lastError}
-                  </div>
-                {/if}
-              {/if}
+            </div>
+            <label class="block">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuVerificationToken')}</span>
+              <input
+                type="text"
+                bind:value={config.feishu_verification_token}
+                on:blur={() => persistConfig()}
+                class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                placeholder="Verification Token"
+              />
+            </label>
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.feishuBotHint')}</p>
+          </div>
+          {/if}
+        </div>
+
+        <!-- Device Registry -->
+        {#if config.telegram_bot_enabled || config.feishu_bot_enabled}
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-slate-600 dark:text-slate-300">{t('nodeGatewayPage.deviceRegistry')}</span>
+            <button
+              type="button"
+              class="settings-chip-button settings-chip-button-active text-[11px]"
+              on:click={() => {
+                if (!config.node_devices) config.node_devices = [];
+                config.node_devices = [...config.node_devices, { name: '', url: '', token: '' }];
+              }}
+            >
+              {t('nodeGatewayPage.addDevice')}
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.deviceRegistryHint')}</p>
+          <div class="flex items-center gap-2 rounded-lg bg-primary-50/60 px-3 py-1.5 ring-1 ring-primary-200/60 dark:bg-primary-900/20 dark:ring-primary-800/40">
+            <span class="text-xs font-medium text-primary-700 dark:text-primary-300">{t('nodeGatewayPage.localDevice')}</span>
+            <span class="text-xs font-mono text-slate-500 dark:text-slate-400">{localStatus?.baseUrl || '-'}</span>
+          </div>
+          {#each config.node_devices || [] as device, i}
+          <div class="flex items-start gap-2 rounded-lg bg-white/70 px-3 py-2 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+            <div class="flex-1 grid gap-x-2 gap-y-1 grid-cols-[1fr_2fr]">
               <label class="block">
-                <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.telegramBotProxy')}</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceNameCol')}</span>
                 <input
                   type="text"
-                  bind:value={config.telegram_bot_proxy}
-                  on:blur={() => persistConfig()}
-                  class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                  placeholder="http://127.0.0.1:7890"
+                  bind:value={device.name}
+                  class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-sm text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                  placeholder="Office PC"
                 />
               </label>
-              <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.telegramBotProxyHint')}</p>
-              <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.telegramBotHint')}</p>
-            </div>
-            {/if}
-          </div>
-
-          <!-- Feishu Bot -->
-          <div class="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-            <div class="flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2">
-                <svg class="w-4 h-4 text-[#3370FF]" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M20.487 17.14c.88-1.668 1.388-3.566 1.388-5.576C21.875 5.197 17.263.583 11.896.583 6.53.583 1.917 5.197 1.917 10.564c0 5.367 4.613 9.98 9.98 9.98 1.99 0 3.846-.583 5.417-1.585l3.428 1.485a.77.77 0 00.97-1.034l-1.225-2.27z"/>
-                </svg>
-                <span class="text-sm text-slate-700 dark:text-slate-200">飞书</span>
-                {#if config.feishu_bot_enabled}
-                  <span class="settings-chip-success">{t('nodeGatewayPage.feishuEnabled')}</span>
-                {/if}
-              </div>
-              <button
-                type="button"
-                on:click={() => {
-                  config.feishu_bot_enabled = !config.feishu_bot_enabled;
-                  persistConfig();
-                }}
-                disabled={saving}
-                class="switch-track {config.feishu_bot_enabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'} {saving ? 'opacity-60 cursor-not-allowed' : ''}"
-              >
-                <span class="switch-thumb {config.feishu_bot_enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
-              </button>
-            </div>
-            {#if config.feishu_bot_enabled}
-            <div class="mt-2 space-y-2">
-              <div class="grid gap-2 grid-cols-2">
-                <label class="block">
-                  <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuAppId')}</span>
-                  <input
-                    type="text"
-                    bind:value={config.feishu_app_id}
-                    on:blur={() => persistConfig()}
-                    class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                    placeholder="cli_xxx"
-                  />
-                </label>
-                <label class="block">
-                  <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuAppSecret')}</span>
-                  <div class="mt-0.5 relative">
-                    {#if feishuSecretVisible}
-                      <input
-                        type="text"
-                        bind:value={config.feishu_app_secret}
-                        on:blur={() => persistConfig()}
-                        class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                        placeholder="Secret"
-                      />
-                    {:else}
-                      <input
-                        type="password"
-                        bind:value={config.feishu_app_secret}
-                        on:blur={() => persistConfig()}
-                        class="w-full rounded-md bg-white/80 px-3 py-1.5 pr-8 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                        placeholder="Secret"
-                      />
-                    {/if}
-                    <button
-                      type="button"
-                      class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                      on:click={() => (feishuSecretVisible = !feishuSecretVisible)}
-                    >
-                      {#if feishuSecretVisible}
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L6.59 6.59m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
-                      {:else}
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                      {/if}
-                    </button>
-                  </div>
-                </label>
-              </div>
               <label class="block">
-                <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.feishuVerificationToken')}</span>
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceUrlCol')}</span>
                 <input
                   type="text"
-                  bind:value={config.feishu_verification_token}
-                  on:blur={() => persistConfig()}
-                  class="mt-0.5 w-full rounded-md bg-white/80 px-3 py-1.5 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                  placeholder="Verification Token"
+                  bind:value={device.url}
+                  class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                  placeholder="http://192.168.1.100:47831"
                 />
               </label>
-              <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.feishuBotHint')}</p>
+              <label class="col-span-2 block">
+                <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceTokenCol')}</span>
+                <input
+                  type="password"
+                  bind:value={device.token}
+                  class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-xs font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
+                  placeholder="wr-local-..."
+                />
+              </label>
             </div>
-            {/if}
+            <button
+              type="button"
+              class="text-xs text-red-400 hover:text-red-500 mt-3 shrink-0"
+              on:click={() => {
+                config.node_devices = config.node_devices.filter((_, j) => j !== i);
+                persistConfig();
+              }}
+            >
+              {t('nodeGatewayPage.removeDevice')}
+            </button>
           </div>
+          {/each}
+        </div>
+        {/if}
 
-          <!-- Device Registry (shared by both bots) -->
-          {#if config.telegram_bot_enabled || config.feishu_bot_enabled}
-          <div class="space-y-2">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">{t('nodeGatewayPage.deviceRegistry')}</span>
-              <button
-                type="button"
-                class="settings-chip-button settings-chip-button-active text-[11px]"
-                on:click={() => {
-                  if (!config.node_devices) config.node_devices = [];
-                  config.node_devices = [...config.node_devices, { name: '', url: '', token: '' }];
-                }}
-              >
-                {t('nodeGatewayPage.addDevice')}
-              </button>
+        <!-- API Examples -->
+        <div>
+          <button
+            type="button"
+            class="flex w-full items-center justify-between gap-2 rounded-xl bg-white/70 px-3.5 py-2.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70"
+            on:click={() => (examplesExpanded = !examplesExpanded)}
+          >
+            <div class="flex items-center gap-2">
+              <svg class="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+              </svg>
+              <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.apiExamples')}</span>
             </div>
-            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.deviceRegistryHint')}</p>
-            <div class="flex items-center gap-2 rounded-lg bg-primary-50/60 px-3 py-1.5 ring-1 ring-primary-200/60 dark:bg-primary-900/20 dark:ring-primary-800/40">
-              <span class="text-xs font-medium text-primary-700 dark:text-primary-300">{t('nodeGatewayPage.localDevice')}</span>
-              <span class="text-xs font-mono text-slate-500 dark:text-slate-400">{localStatus?.baseUrl || '-'}</span>
-            </div>
-            {#each config.node_devices || [] as device, i}
-            <div class="flex items-start gap-2 rounded-lg bg-white/70 px-3 py-2 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-              <div class="flex-1 grid gap-x-2 gap-y-1 grid-cols-[1fr_2fr]">
-                <label class="block">
-                  <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceNameCol')}</span>
-                  <input
-                    type="text"
-                    bind:value={device.name}
-                    class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-sm text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                    placeholder="办公电脑"
-                  />
-                </label>
-                <label class="block">
-                  <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceUrlCol')}</span>
-                  <input
-                    type="text"
-                    bind:value={device.url}
-                    class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-sm font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                    placeholder="http://192.168.1.100:47831"
-                  />
-                </label>
-                <label class="col-span-2 block">
-                  <span class="text-[10px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.deviceTokenCol')}</span>
-                  <input
-                    type="password"
-                    bind:value={device.token}
-                    class="mt-0.5 w-full rounded-md bg-white/80 px-2 py-1 text-xs font-mono text-slate-800 ring-1 ring-slate-200 focus:ring-primary-300 dark:bg-slate-700/50 dark:text-white dark:ring-slate-600 dark:focus:ring-primary-600 focus:outline-none"
-                    placeholder="wr-local-..."
-                  />
-                </label>
+            <svg class="w-4 h-4 text-slate-400 transition-transform {examplesExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {#if examplesExpanded}
+          <div class="mt-2 space-y-1.5">
+            <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.apiExamplesHint')}</p>
+            {#each [
+              { label: 'GET /health', desc: t('nodeGatewayPage.exampleHealthDesc'), cmd: curlCommand('GET', '/health') },
+              { label: 'GET /v1/device', desc: t('nodeGatewayPage.exampleDeviceDesc'), cmd: curlCommand('GET', '/v1/device') },
+              { label: 'GET /v1/reports', desc: t('nodeGatewayPage.exampleReportsDesc'), cmd: curlCommand('GET', '/v1/reports') },
+              { label: 'GET /v1/reports/:date', desc: t('nodeGatewayPage.exampleReportByDateDesc'), cmd: curlCommand('GET', '/v1/reports/2025-01-15') },
+              { label: 'POST /v1/reports/generate', desc: t('nodeGatewayPage.exampleGenerateDesc'), cmd: curlCommand('POST', '/v1/reports/generate', { date: '2025-01-15' }) },
+            ] as example}
+            <div class="flex items-start justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono font-medium text-slate-600 dark:text-slate-300">{example.label}</span>
+                  <span class="text-[11px] text-slate-400">{example.desc}</span>
+                </div>
+                <code class="block text-[11px] font-mono text-slate-500 dark:text-slate-400 break-all leading-relaxed">{example.cmd}</code>
               </div>
-              <button
-                type="button"
-                class="text-xs text-red-400 hover:text-red-500 mt-3 shrink-0"
-                on:click={() => {
-                  config.node_devices = config.node_devices.filter((_, j) => j !== i);
-                  persistConfig();
-                }}
-              >
-                {t('nodeGatewayPage.removeDevice')}
+              <button type="button" class="settings-chip-button text-[10px] shrink-0" on:click={() => copyCurl(example.cmd)}>
+                {t('nodeGatewayPage.copyCurl')}
               </button>
             </div>
             {/each}
           </div>
           {/if}
         </div>
+        {/if}
       </div>
 
-      <!-- API Examples (collapsible) -->
-      <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 dark:border-slate-700/80 dark:bg-slate-800/40">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between gap-2"
-          on:click={() => (examplesExpanded = !examplesExpanded)}
-        >
+      <!-- ========== MCP Server 大卡片 ========== -->
+      <div class="rounded-2xl border border-slate-200/80 bg-slate-50/90 p-4 space-y-4 dark:border-slate-700/80 dark:bg-slate-800/40">
+        <!-- MCP Server 标题 + 开关 -->
+        <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
-            <div class="flex h-6 w-6 items-center justify-center rounded-md bg-primary-100 dark:bg-primary-900/30">
-              <svg class="w-3.5 h-3.5 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            <div class="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+              <svg class="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             </div>
-            <span class="text-sm font-medium text-slate-700 dark:text-slate-200">{t('nodeGatewayPage.apiExamples')}</span>
-          </div>
-          <svg class="w-4 h-4 text-slate-400 transition-transform {examplesExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-
-        {#if examplesExpanded}
-        <div class="mt-3 space-y-1.5">
-          <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.apiExamplesHint')}</p>
-          {#each [
-            { label: 'GET /health', desc: t('nodeGatewayPage.exampleHealthDesc'), cmd: curlCommand('GET', '/health') },
-            { label: 'GET /v1/device', desc: t('nodeGatewayPage.exampleDeviceDesc'), cmd: curlCommand('GET', '/v1/device') },
-            { label: 'GET /v1/reports', desc: t('nodeGatewayPage.exampleReportsDesc'), cmd: curlCommand('GET', '/v1/reports') },
-            { label: 'GET /v1/reports/:date', desc: t('nodeGatewayPage.exampleReportByDateDesc'), cmd: curlCommand('GET', '/v1/reports/2025-01-15') },
-            { label: 'POST /v1/reports/generate', desc: t('nodeGatewayPage.exampleGenerateDesc'), cmd: curlCommand('POST', '/v1/reports/generate', { date: '2025-01-15' }) },
-          ] as example}
-          <div class="flex items-start justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-2">
-                <span class="text-xs font-mono font-medium text-slate-600 dark:text-slate-300">{example.label}</span>
-                <span class="text-[11px] text-slate-400">{example.desc}</span>
-              </div>
-              <code class="block text-[11px] font-mono text-slate-500 dark:text-slate-400 break-all leading-relaxed">{example.cmd}</code>
+            <div>
+              <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">MCP Server</span>
+              {#if config.mcp_server_enabled}
+                <span class="settings-chip-success ml-1.5">{t('nodeGatewayPage.mcpServerEnabled')}</span>
+              {:else}
+                <span class="settings-chip-neutral ml-1.5">{t('nodeGatewayPage.mcpServerDisabled')}</span>
+              {/if}
             </div>
-            <button type="button" class="settings-chip-button text-[10px] shrink-0" on:click={() => copyCurl(example.cmd)}>
-              {t('nodeGatewayPage.copyCurl')}
-            </button>
           </div>
-          {/each}
+          <button
+            type="button"
+            on:click={() => {
+              config.mcp_server_enabled = !config.mcp_server_enabled;
+              persistConfig();
+            }}
+            disabled={saving}
+            class="switch-track {config.mcp_server_enabled ? 'bg-primary-500' : 'bg-slate-300 dark:bg-slate-600'} {saving ? 'opacity-60 cursor-not-allowed' : ''}"
+          >
+            <span class="switch-thumb {config.mcp_server_enabled ? 'translate-x-5' : 'translate-x-0'}"></span>
+          </button>
+        </div>
+
+        <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.mcpServerDescription')}</p>
+
+        {#if config.mcp_server_enabled}
+        <!-- MCP 配置内容 -->
+        <div class="space-y-3">
+          <p class="text-[11px] text-slate-400 dark:text-slate-500">{t('nodeGatewayPage.mcpServerBinaryHint')}</p>
+
+          <div class="space-y-1.5">
+            {#if mcpDbPath}
+            <div class="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.mcpServerDbPath')}</span>
+              <span class="font-mono text-[11px] text-slate-700 dark:text-slate-300 max-w-[60%] truncate" title={mcpDbPath}>{mcpDbPath}</span>
+            </div>
+            {/if}
+            {#if mcpConfigPath}
+            <div class="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.mcpServerConfigPath')}</span>
+              <span class="font-mono text-[11px] text-slate-700 dark:text-slate-300 max-w-[60%] truncate" title={mcpConfigPath}>{mcpConfigPath}</span>
+            </div>
+            {/if}
+            <div class="flex items-center justify-between gap-2 rounded-lg bg-white/70 px-3 py-1.5 ring-1 ring-slate-200/70 dark:bg-slate-900/20 dark:ring-slate-700/70">
+              <span class="text-[11px] text-slate-500 dark:text-slate-400">{t('nodeGatewayPage.mcpServerBinaryPath')}</span>
+              <span class="font-mono text-[11px] text-slate-700 dark:text-slate-300 max-w-[60%] truncate">work-review-mcp-server</span>
+            </div>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-medium text-slate-600 dark:text-slate-300">{t('nodeGatewayPage.mcpServerConfigTitle')}</span>
+              <button type="button" class="settings-chip-button settings-chip-button-active text-[11px]" on:click={copyMcpConfig}>
+                {t('nodeGatewayPage.mcpServerCopyConfig')}
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-400 dark:text-slate-500 mb-1.5">{t('nodeGatewayPage.mcpServerConfigHint')}</p>
+            <pre class="rounded-lg bg-slate-800 p-3 text-[11px] font-mono text-slate-300 leading-relaxed overflow-x-auto dark:bg-slate-900/80">{mcpConfigJson}</pre>
+          </div>
         </div>
         {/if}
       </div>
-      {/if}
 
       <!-- Error -->
       {#if localStatus.lastError}
@@ -643,3 +733,6 @@
     </div>
   {/if}
 </div>
+
+<style>
+</style>
