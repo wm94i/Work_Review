@@ -157,7 +157,7 @@ The assistant answers directly from your local records and is useful for recap, 
 
 ### Integrations Beta
 
-<img src="docs/Introduction_en/节点.png" alt="Work Review Integrations" />
+<img src="docs/Introduction_en/接入管理.png" alt="Work Review Integrations" />
 
 The integrations page manages device identity, local API, Bot connections, and MCP Server for external tool integration and cross-device report generation.
 
