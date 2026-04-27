@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.42] - 2026-04-27
+
+### 新增
+- 支持多段工作时间设置（最多 8 段），休息时间不计入工作时长，设置 > 常规可直接管理（#71）。
+- 概览页浏览器域名支持语义分类标记（如标记为「休息娱乐」则不计入工作时长），修改后自动回填历史记录（#72）。
+- 网站语义分类现直接映射到基础分类，影响工作/休息时长统计。
+- 时间线时段摘要支持展开全文 / 收起，不再截断较长内容。
+- 接入管理页新增 MCP Server 开关与配置参考，自动填入数据库和配置路径。
+- README（中文 / 繁体 / 英文）新增 MCP Server 配置说明、接入管理截图、Bot 联动 Beta 标注。
+
+### 优化
+- 接入管理页布局重构：Bot 集成（Telegram / 飞书）和 MCP Server 各自归入大卡片，层级更清晰。
+- 设置侧栏 Beta 标签缩小并禁止换行。
+- 按小时活跃度摘要卡片文本居中显示。
+- 编译优化 profile 提升至 workspace 根 Cargo.toml。
+- 本地 Mac 打包脚本仅生成 .app，跳过 updater 产物。
+
+### 修复
+- 修复日报自动生成时间未适配多段工作时间的问题：现取最后一段结束时间。
+- 修复域名语义修改后历史记录基础分类未同步更新的问题。
+- 修复测试文件路径指向旧 src-tauri 的问题（适配 core crate 提取）。
+
 ## [1.0.41] - 2026-04-20
 
 ### 新增
