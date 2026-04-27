@@ -66,12 +66,29 @@ jobs:
             exit 0
           fi
           echo "$MACOS_CODESIGN_P12" | base64 -d > /tmp/codesign.p12
+          if [[ ! -s /tmp/codesign.p12 ]]; then
+            echo "::warning::Decoded P12 is empty, skipping code signing import"
+            rm -f /tmp/codesign.p12
+            exit 0
+          fi
+          file_type="$(file -b /tmp/codesign.p12)"
+          if echo "$file_type" | grep -qi "data"; then
+            :
+          elif echo "$file_type" | grep -qi "text"; then
+            echo "::warning::Decoded P12 appears to be text, not a binary certificate. Check MACOS_CODESIGN_P12 secret encoding."
+            rm -f /tmp/codesign.p12
+            exit 0
+          fi
           security create-keychain -p actions ci-keychain 2>/dev/null || true
           security unlock-keychain -p actions ci-keychain
-          security import /tmp/codesign.p12 \
+          if ! security import /tmp/codesign.p12 \
             -k ci-keychain \
             -P "$MACOS_CODESIGN_PASSWORD" \
-            -T /usr/bin/codesign
+            -T /usr/bin/codesign 2>&1; then
+            echo "::warning::Certificate import failed, skipping code signing. Verify MACOS_CODESIGN_P12 and MACOS_CODESIGN_PASSWORD secrets."
+            rm -f /tmp/codesign.p12
+            exit 0
+          fi
           security set-key-partition-list -S apple-tool:,apple: -s -k actions ci-keychain
           security list-keychains -d user -s ci-keychain
           rm -f /tmp/codesign.p12
@@ -219,6 +236,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          if [[ ! -d "src-tauri/target" ]]; then
+            echo "src-tauri/target directory not found, build may have failed" >&2
+            exit 1
+          fi
 
           require_file() {
             local pattern="$1"
