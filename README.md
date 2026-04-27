@@ -159,7 +159,7 @@ cargo build --release -p work-review-mcp-server
 
 ### 接入管理 Beta
 
-<img src="docs/Introduction_zh/节点.png" alt="Work Review 接入管理" />
+<img src="docs/Introduction_zh/接入管理.png" alt="Work Review 接入管理" />
 
 接入管理页用于管理设备身份、本地 API、Bot 联动和 MCP Server，方便外部工具对接和多设备日报生成。
 
