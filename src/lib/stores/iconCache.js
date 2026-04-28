@@ -99,8 +99,15 @@ pruneCache();
 // 响应式 store，通知 Svelte 更新 UI
 export const appIconStore = writable({ ..._iconCache });
 
+let _storeDirty = false;
+let _storeFlushTimer = null;
+
 function updateIconStore() {
-    appIconStore.set({ ..._iconCache });
+    if (_storeFlushTimer) return;
+    _storeFlushTimer = setTimeout(() => {
+        _storeFlushTimer = null;
+        appIconStore.set({ ..._iconCache });
+    }, 100);
 }
 
 function runNextIconRequest() {

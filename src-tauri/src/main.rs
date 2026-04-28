@@ -1291,6 +1291,8 @@ async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
     let mut last_window_signature: Option<String> = None;
     let mut break_reminder_runtime = BreakReminderRuntime::new();
     let mut avatar_nudge_runtime = AvatarNudgeRuntime::default();
+    let mut cached_rules: Vec<work_review_core::config::AppCategoryRule> = Vec::new();
+    let mut cached_rules_signature: u64 = 0;
     const IDLE_TIMEOUT_MINUTES: u64 = 3;
     let idle_detector = idle_detector::IdleDetector::new(IDLE_TIMEOUT_MINUTES);
 
@@ -1376,10 +1378,21 @@ async fn background_avatar_task(state: Arc<Mutex<AppState>>, app: AppHandle) {
 
         let app_category_rules = {
             let mut state_guard = state.lock().unwrap_or_else(|e| e.into_inner());
-            // 写入缓存供 screenshot 循环复用，避免重复 spawn osascript
             state_guard.cached_active_window = Some((sampled_at, active_window.clone()));
-            state_guard.config.app_category_rules.clone()
+            let rules = &state_guard.config.app_category_rules;
+            let sig = rules.len() as u64
+                | rules.last().map_or(0u64, |r| {
+                    let mut h: u64 = 0;
+                    for b in r.app_name.as_bytes() { h = h.wrapping_add(*b as u64); }
+                    for b in r.category.as_bytes() { h = h.wrapping_mul(31).wrapping_add(*b as u64); }
+                    h
+                });
+            if sig != cached_rules_signature {
+                cached_rules = rules.clone();
+                cached_rules_signature = sig;
+            }
         };
+        let app_category_rules = &cached_rules;
 
         if should_skip_transient_window(&active_window) || should_skip_system_window(&active_window)
         {

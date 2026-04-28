@@ -59,8 +59,13 @@ function persistState(state) {
 function createAssistantStore() {
   const { subscribe, set, update } = writable(loadState());
 
+  let _persistTimer = null;
   subscribe((state) => {
-    persistState(state);
+    if (_persistTimer) clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(() => {
+      _persistTimer = null;
+      persistState(state);
+    }, 500);
   });
 
   return {

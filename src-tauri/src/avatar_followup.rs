@@ -93,6 +93,9 @@ pub fn apply_followup_action(project_key: &str, action: AvatarFollowupAction, pe
     };
 
     let mut runtime = FOLLOWUP_RUNTIME.lock().unwrap_or_else(|e| e.into_inner());
+    runtime
+        .snoozed_until_by_project_key
+        .retain(|_, until| *until > now_ms);
     runtime.snoozed_until_by_project_key.insert(
         project_key.to_string(),
         now_ms.saturating_add(cooldown_ms),

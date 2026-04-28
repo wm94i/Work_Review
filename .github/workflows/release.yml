@@ -104,7 +104,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          CARGO_TARGET_DIR: src-tauri/target
         shell: bash
         run: |
           set -euo pipefail
@@ -132,32 +131,6 @@ jobs:
           else
             echo "No build output directory found in src-tauri/target or target."
           fi
-
-      - name: Re-sign macOS app with stable identity
-        if: startsWith(matrix.platform, 'macos')
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          APP_PATH="$(find src-tauri/target target -type d -path '*/release/bundle/macos/*.app' 2>/dev/null | sort | head -n 1 || true)"
-          if [[ -z "$APP_PATH" ]]; then
-            echo "No build output, skipping re-sign"
-            exit 0
-          fi
-
-          CERT_NAME="WorkReview Self-Signed"
-          if ! security find-certificate -c "$CERT_NAME" ci-keychain &>/dev/null; then
-            echo "No signing certificate found, skipping re-sign"
-            exit 0
-          fi
-
-          echo "Re-signing: $APP_PATH"
-          codesign --force --deep --sign "$CERT_NAME" \
-            --entitlements src-tauri/entitlements.plist \
-            --options runtime \
-            "$APP_PATH"
-          codesign -dvvv "$APP_PATH" 2>&1 | grep -E "Authority|Identifier"
-          echo "Re-sign complete"
 
       - name: Rename macOS updater assets
         if: startsWith(matrix.platform, 'macos')

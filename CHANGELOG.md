@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.42] - 2026-04-27
+## [1.0.42] - 2026-04-28
 
 ### 新增
 - 支持多段工作时间设置（最多 8 段），休息时间不计入工作时长，设置 > 常规可直接管理（#71）。
@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 时间线时段摘要支持展开全文 / 收起，不再截断较长内容。
 - 接入管理页新增 MCP Server 开关与配置参考，自动填入数据库和配置路径。
 - README（中文 / 繁体 / 英文）新增 MCP Server 配置说明、接入管理截图、Bot 联动 Beta 标注。
+- 设置页标题栏支持 sticky 吸顶，滚动到底部填写 AI 模型配置时保存按钮始终可见（#74）。
+- 日报自动生成时间现可在设置中自定义（#73）。
 
 ### 优化
 - 接入管理页布局重构：Bot 集成（Telegram / 飞书）和 MCP Server 各自归入大卡片，层级更清晰。
@@ -21,11 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 按小时活跃度摘要卡片文本居中显示。
 - 编译优化 profile 提升至 workspace 根 Cargo.toml。
 - 本地 Mac 打包脚本仅生成 .app，跳过 updater 产物。
+- 浏览器 URL 去重缓存增加 256 条上限，防止长期运行内存持续增长。
+- 桌宠继续提醒 snooze 记录在每次操作时自动清理已过期条目。
+- 前端按日期缓存增加 7 天淘汰策略，避免浏览历史页时内存累积。
+- 图标缓存 store 更新改为 100ms 合并批量写入，避免逐个图标触发全量对象拷贝。
+- 助手会话 localStorage 持久化增加 500ms 防抖，减少主线程阻塞。
+- 桌宠后台循环分类规则改用脏签名检测，仅在配置变更时重新 clone，降低热路径分配压力。
 
 ### 修复
 - 修复日报自动生成时间未适配多段工作时间的问题：现取最后一段结束时间。
 - 修复域名语义修改后历史记录基础分类未同步更新的问题。
 - 修复测试文件路径指向旧 src-tauri 的问题（适配 core crate 提取）。
+- 修复 macOS CI 构建产物路径因 CARGO_TARGET_DIR 导致 src-tauri 路径翻倍、后续步骤找不到产物的致命问题。
+- 移除无效的 macOS re-sign 步骤（DMG 和 updater 已在 Build 阶段封包，后续重签不影响交付物）。
 
 ## [1.0.41] - 2026-04-20
 

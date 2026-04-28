@@ -1487,6 +1487,21 @@
 
 .settings-editorial-shell {
   position: relative;
+  min-height: 100%;
+}
+
+.settings-editorial-shell .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding-top: 0.75rem;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.dark .settings-editorial-shell .page-header {
+  background: rgba(15, 23, 42, 0.85);
 }
 
 .settings-editorial-board {

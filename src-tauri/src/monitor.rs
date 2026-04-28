@@ -41,9 +41,13 @@ static LAST_BROWSER_URL_LOGS: Lazy<Mutex<HashMap<String, String>>> =
 
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 fn remember_browser_url_log(cache: &mut HashMap<String, String>, key: &str, url: &str) -> bool {
+    const MAX_ENTRIES: usize = 256;
     match cache.get(key) {
         Some(previous) if previous == url => false,
         _ => {
+            if cache.len() >= MAX_ENTRIES {
+                cache.clear();
+            }
             cache.insert(key.to_string(), url.to_string());
             true
         }

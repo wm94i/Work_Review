@@ -40,6 +40,21 @@ function createCache() {
     default: 30000,     // 默认：30秒
   };
 
+  // 保留最近 N 天的按日期缓存，超过的自动淘汰
+  const MAX_CACHE_DAYS = 7;
+
+  function evictOldEntries(obj, currentDate) {
+    if (Object.keys(obj).length <= MAX_CACHE_DAYS) return obj;
+    const cutoff = new Date(currentDate);
+    cutoff.setDate(cutoff.getDate() - MAX_CACHE_DAYS);
+    const cutoffStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+    const filtered = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (k >= cutoffStr) filtered[k] = v;
+    }
+    return filtered;
+  }
+
   return {
     subscribe,
 
@@ -66,16 +81,16 @@ function createCache() {
     })),
 
     // 设置时间线数据
-    setTimeline: (date, data, summaries) => update(c => ({
-      ...c,
-      timeline: { ...c.timeline, [date]: { data, summaries, timestamp: Date.now() } }
-    })),
+    setTimeline: (date, data, summaries) => update(c => {
+      const timeline = { ...evictOldEntries(c.timeline, date), [date]: { data, summaries, timestamp: Date.now() } };
+      return { ...c, timeline };
+    }),
 
     // 设置日报数据
-    setReport: (date, data) => update(c => ({
-      ...c,
-      reports: { ...c.reports, [date]: { data, timestamp: Date.now() } }
-    })),
+    setReport: (date, data) => update(c => {
+      const reports = { ...evictOldEntries(c.reports, date), [date]: { data, timestamp: Date.now() } };
+      return { ...c, reports };
+    }),
 
     // 设置配置
     setConfig: (data) => update(c => ({ ...c, config: data })),
