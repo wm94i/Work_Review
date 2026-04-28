@@ -20,7 +20,7 @@ jobs:
             args: "--target x86_64-apple-darwin"
             target: x86_64-apple-darwin
           - platform: ubuntu-22.04
-            args: ""
+            args: "--target x86_64-unknown-linux-gnu"
             target: x86_64-unknown-linux-gnu
           - platform: windows-latest
             args: ""
@@ -104,7 +104,18 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- ${{ matrix.args }}
+          CARGO_TARGET_DIR: src-tauri/target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # CI 中证书导入失败时，回退到 ad-hoc 签名，避免 macOS 构建直接中断
+          if [[ "${{ matrix.platform }}" == macos* ]] && [[ "${MACOS_CODESIGN_AVAILABLE:-}" != "1" ]]; then
+            echo "::warning::No macOS signing certificate imported, fallback to ad-hoc signing identity (-)."
+            export APPLE_SIGNING_IDENTITY="-"
+          fi
+
+          npm run tauri build -- ${{ matrix.args }}
 
       - name: List build output
         if: always()
