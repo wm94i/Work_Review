@@ -16,7 +16,7 @@ jobs:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
             target: aarch64-apple-darwin
-          - platform: macos-latest
+          - platform: macos-13
             args: "--target x86_64-apple-darwin"
             target: x86_64-apple-darwin
           - platform: ubuntu-22.04
@@ -121,15 +121,16 @@ jobs:
         if: always()
         shell: bash
         run: |
-          echo "=== src-tauri/target exists? ==="
-          if [[ -d "src-tauri/target" ]]; then
-            echo "Yes"
-            find src-tauri/target -maxdepth 5 -type f \( -name "*.app" -o -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.tar.gz" -o -name "*.sig" \) 2>/dev/null || true
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+
+          echo "=== target root: $TARGET_ROOT ==="
+          if [[ -d "$TARGET_ROOT" ]]; then
+            find "$TARGET_ROOT" -maxdepth 5 -type f \( -name "*.app" -o -name "*.dmg" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.tar.gz" -o -name "*.sig" \) 2>/dev/null || true
           else
-            echo "No - build may have failed"
-            if [[ -d "src-tauri" ]]; then
-              ls -la src-tauri/ 2>/dev/null || true
-            fi
+            echo "No build output directory found in src-tauri/target or target"
           fi
 
       - name: Re-sign macOS app with stable identity
@@ -137,7 +138,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -d "src-tauri/target" ]]; then
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+          if [[ ! -d "$TARGET_ROOT" ]]; then
             echo "No build output, skipping re-sign"
             exit 0
           fi
@@ -148,7 +153,7 @@ jobs:
             exit 0
           fi
 
-          APP_PATH="$(find src-tauri/target -path '*/release/bundle/macos/*.app' -type d | sort | head -n 1 || true)"
+          APP_PATH="$(find "$TARGET_ROOT" -path '*/release/bundle/macos/*.app' -type d | sort | head -n 1 || true)"
           if [[ -z "$APP_PATH" ]]; then
             echo "No .app bundle found, skipping re-sign"
             exit 0
@@ -167,7 +172,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -d "src-tauri/target" ]]; then
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+          if [[ ! -d "$TARGET_ROOT" ]]; then
             echo "No build output, skipping rename"
             exit 0
           fi
@@ -183,7 +192,7 @@ jobs:
             ARCH_SUFFIX="x64"
           fi
 
-          find src-tauri/target -type f -path "*/release/bundle/macos/*.app.tar.gz" | while read -r file; do
+          find "$TARGET_ROOT" -type f -path "*/release/bundle/macos/*.app.tar.gz" | while read -r file; do
             dir="$(dirname "$file")"
             base="$(basename "$file" ".app.tar.gz")"
             normalized_base="$(normalize_name "$base")"
@@ -195,7 +204,7 @@ jobs:
             fi
           done
 
-          find src-tauri/target -type f -path "*/release/bundle/dmg/*.dmg" | while read -r file; do
+          find "$TARGET_ROOT" -type f -path "*/release/bundle/dmg/*.dmg" | while read -r file; do
             dir="$(dirname "$file")"
             name="$(basename "$file")"
             normalized_name="$(normalize_name "$name")"
@@ -210,7 +219,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -d "src-tauri/target" ]]; then
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+          if [[ ! -d "$TARGET_ROOT" ]]; then
             echo "No build output, skipping rename"
             exit 0
           fi
@@ -220,7 +233,7 @@ jobs:
             printf '%s' "${filename// /_}"
           }
 
-          find src-tauri/target -type f -path "*/release/bundle/nsis/*.exe" | while read -r file; do
+          find "$TARGET_ROOT" -type f -path "*/release/bundle/nsis/*.exe" | while read -r file; do
             dir="$(dirname "$file")"
             name="$(basename "$file")"
             normalized_name="$(normalize_name "$name")"
@@ -239,7 +252,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -d "src-tauri/target" ]]; then
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+          if [[ ! -d "$TARGET_ROOT" ]]; then
             echo "No build output, skipping rename"
             exit 0
           fi
@@ -249,7 +266,7 @@ jobs:
             printf '%s' "${filename// /_}"
           }
 
-          find src-tauri/target -type f -path "*/release/bundle/appimage/*.AppImage" | while read -r file; do
+          find "$TARGET_ROOT" -type f -path "*/release/bundle/appimage/*.AppImage" | while read -r file; do
             dir="$(dirname "$file")"
             name="$(basename "$file")"
             normalized_name="$(normalize_name "$name")"
@@ -259,7 +276,7 @@ jobs:
             fi
           done
 
-          find src-tauri/target -type f -path "*/release/bundle/deb/*.deb" | while read -r file; do
+          find "$TARGET_ROOT" -type f -path "*/release/bundle/deb/*.deb" | while read -r file; do
             dir="$(dirname "$file")"
             name="$(basename "$file")"
             normalized_name="$(normalize_name "$name")"
@@ -274,8 +291,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! -d "src-tauri/target" ]]; then
-            echo "src-tauri/target directory not found, build may have failed" >&2
+          TARGET_ROOT="src-tauri/target"
+          if [[ ! -d "$TARGET_ROOT" && -d "target" ]]; then
+            TARGET_ROOT="target"
+          fi
+
+          if [[ ! -d "$TARGET_ROOT" ]]; then
+            echo "Build output directory not found (src-tauri/target or target)" >&2
             exit 1
           fi
 
@@ -283,11 +305,11 @@ jobs:
             local pattern="$1"
             local label="$2"
             local match
-            match="$(find src-tauri/target -type f -path "$pattern" | sort | head -n 1 || true)"
+            match="$(find "$TARGET_ROOT" -type f -path "$pattern" | sort | head -n 1 || true)"
             if [[ -z "$match" ]]; then
               echo "缺少 ${label}: ${pattern}" >&2
               echo "Available bundle files:" >&2
-              find src-tauri/target -type f -path "*/bundle/*" 2>/dev/null | head -20 >&2 || true
+              find "$TARGET_ROOT" -type f -path "*/bundle/*" 2>/dev/null | head -50 >&2 || true
               exit 1
             fi
             echo "${label}: ${match}"
@@ -327,6 +349,14 @@ jobs:
             src-tauri/target/**/release/bundle/nsis/*.sig
             src-tauri/target/**/release/bundle/appimage/*.AppImage
             src-tauri/target/**/release/bundle/deb/*.deb
+            target/**/release/bundle/dmg/*.dmg
+            target/**/release/bundle/dmg/*.sig
+            target/**/release/bundle/macos/*.app.tar.gz
+            target/**/release/bundle/macos/*.app.tar.gz.sig
+            target/**/release/bundle/nsis/*.exe
+            target/**/release/bundle/nsis/*.sig
+            target/**/release/bundle/appimage/*.AppImage
+            target/**/release/bundle/deb/*.deb
           if-no-files-found: error
 
   publish-release:
