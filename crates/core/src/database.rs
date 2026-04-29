@@ -506,6 +506,104 @@ impl Database {
             [],
         );
 
+        // === FTS5 全文检索索引 ===
+        // activities FTS: 索引窗口标题、OCR 文本、应用名、浏览器 URL
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS activities_fts USING fts5(
+                app_name, window_title, ocr_text, browser_url,
+                content='activities',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            -- 同步触发器：INSERT
+            CREATE TRIGGER IF NOT EXISTS activities_ai AFTER INSERT ON activities BEGIN
+                INSERT INTO activities_fts(rowid, app_name, window_title, ocr_text, browser_url)
+                VALUES (new.id, new.app_name, new.window_title, new.ocr_text, new.browser_url);
+            END;
+
+            -- 同步触发器：DELETE
+            CREATE TRIGGER IF NOT EXISTS activities_ad AFTER DELETE ON activities BEGIN
+                INSERT INTO activities_fts(activities_fts, rowid, app_name, window_title, ocr_text, browser_url)
+                VALUES ('delete', old.id, old.app_name, old.window_title, old.ocr_text, old.browser_url);
+            END;
+
+            -- 同步触发器：UPDATE
+            CREATE TRIGGER IF NOT EXISTS activities_au AFTER UPDATE ON activities BEGIN
+                INSERT INTO activities_fts(activities_fts, rowid, app_name, window_title, ocr_text, browser_url)
+                VALUES ('delete', old.id, old.app_name, old.window_title, old.ocr_text, old.browser_url);
+                INSERT INTO activities_fts(rowid, app_name, window_title, ocr_text, browser_url)
+                VALUES (new.id, new.app_name, new.window_title, new.ocr_text, new.browser_url);
+            END;"
+        )?;
+
+        // hourly_summaries FTS
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS hourly_summaries_fts USING fts5(
+                date, summary, main_apps,
+                content='hourly_summaries',
+                content_rowid='id',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS hourly_summaries_ai AFTER INSERT ON hourly_summaries BEGIN
+                INSERT INTO hourly_summaries_fts(rowid, date, summary, main_apps)
+                VALUES (new.id, new.date, new.summary, new.main_apps);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS hourly_summaries_ad AFTER DELETE ON hourly_summaries BEGIN
+                INSERT INTO hourly_summaries_fts(hourly_summaries_fts, rowid, date, summary, main_apps)
+                VALUES ('delete', old.id, old.date, old.summary, old.main_apps);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS hourly_summaries_au AFTER UPDATE ON hourly_summaries BEGIN
+                INSERT INTO hourly_summaries_fts(hourly_summaries_fts, rowid, date, summary, main_apps)
+                VALUES ('delete', old.id, old.date, old.summary, old.main_apps);
+                INSERT INTO hourly_summaries_fts(rowid, date, summary, main_apps)
+                VALUES (new.id, new.date, new.summary, new.main_apps);
+            END;"
+        )?;
+
+        // daily_reports_localized FTS
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS daily_reports_fts USING fts5(
+                date, content, ai_mode,
+                content='daily_reports_localized',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 2'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS daily_reports_ai AFTER INSERT ON daily_reports_localized BEGIN
+                INSERT INTO daily_reports_fts(rowid, date, content, ai_mode)
+                VALUES (new.rowid, new.date, new.content, new.ai_mode);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS daily_reports_ad AFTER DELETE ON daily_reports_localized BEGIN
+                INSERT INTO daily_reports_fts(daily_reports_fts, rowid, date, content, ai_mode)
+                VALUES ('delete', old.rowid, old.date, old.content, old.ai_mode);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS daily_reports_au AFTER UPDATE ON daily_reports_localized BEGIN
+                INSERT INTO daily_reports_fts(daily_reports_fts, rowid, date, content, ai_mode)
+                VALUES ('delete', old.rowid, old.date, old.content, old.ai_mode);
+                INSERT INTO daily_reports_fts(rowid, date, content, ai_mode)
+                VALUES (new.rowid, new.date, new.content, new.ai_mode);
+            END;"
+        )?;
+
+        Ok(())
+    }
+
+    /// 重建 FTS 索引（用于首次迁移或修复）
+    pub fn rebuild_fts_index(&self) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+        conn.execute_batch(
+            "INSERT INTO activities_fts(activities_fts) VALUES('rebuild');
+             INSERT INTO hourly_summaries_fts(hourly_summaries_fts) VALUES('rebuild');
+             INSERT INTO daily_reports_fts(daily_reports_fts) VALUES('rebuild');",
+        )?;
         Ok(())
     }
 
@@ -1988,8 +2086,154 @@ impl Database {
         Ok(())
     }
 
+    /// FTS5 全文检索：将用户查询转为 FTS5 兼容的 OR 查询
+    /// 处理中文分词：按空格/标点拆分，每个 token 用 OR 连接
+    fn build_fts_query(query: &str) -> String {
+        let tokens: Vec<String> = query
+            .split_whitespace()
+            .map(|t| t.trim().trim_matches(|c: char| c.is_ascii_punctuation() || c == '，' || c == '。' || c == '、' || c == '？' || c == '！'))
+            .filter(|t| t.len() >= 1 && !t.is_empty())
+            .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+            .collect();
+
+        if tokens.is_empty() {
+            // 回退：用原始查询做前缀匹配
+            return format!("\"{}\"", query.trim().replace('"', "\"\""));
+        }
+
+        tokens.join(" OR ")
+    }
+
+    /// FTS5 搜索活动记录
+    fn search_activities_fts(
+        &self,
+        fts_query: &str,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        limit: i64,
+    ) -> Result<Vec<(i64, i64, String, String, Option<String>, Option<String>, i64, i64)>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT a.id, a.timestamp, a.app_name, a.window_title, a.ocr_text, a.browser_url, a.duration, fts.rank
+             FROM activities_fts fts
+             JOIN activities a ON a.id = fts.rowid
+             WHERE activities_fts MATCH ?1
+               AND (?2 IS NULL OR a.timestamp >= ?2)
+               AND (?3 IS NULL OR a.timestamp < ?3)
+             ORDER BY fts.rank
+             LIMIT ?4",
+        )?;
+
+        let rows = stmt
+            .query_map(params![fts_query, start_ts, end_ts, limit], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
+    /// FTS5 搜索小时摘要
+    fn search_hourly_fts(
+        &self,
+        fts_query: &str,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<(i64, String, i32, String, String, i64, i64, i64)>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT h.id, h.date, h.hour, h.summary, h.main_apps, h.total_duration, h.created_at, fts.rank
+             FROM hourly_summaries_fts fts
+             JOIN hourly_summaries h ON h.id = fts.rowid
+             WHERE hourly_summaries_fts MATCH ?1
+               AND (?2 IS NULL OR h.date >= ?2)
+               AND (?3 IS NULL OR h.date <= ?3)
+             ORDER BY fts.rank
+             LIMIT ?4",
+        )?;
+
+        let rows = stmt
+            .query_map(params![fts_query, date_from, date_to, limit], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i32>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
+    /// FTS5 搜索日报
+    fn search_reports_fts(
+        &self,
+        fts_query: &str,
+        date_from: Option<&str>,
+        date_to: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<(String, String, String, Option<String>, i64, i64)>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let mut stmt = conn.prepare(
+            "SELECT d.date, d.content, d.ai_mode, d.model_name, d.created_at, fts.rank
+             FROM daily_reports_fts fts
+             JOIN daily_reports_localized d ON d.rowid = fts.rowid
+             WHERE daily_reports_fts MATCH ?1
+               AND (?2 IS NULL OR d.date >= ?2)
+               AND (?3 IS NULL OR d.date <= ?3)
+             ORDER BY fts.rank
+             LIMIT ?4",
+        )?;
+
+        let rows = stmt
+            .query_map(params![fts_query, date_from, date_to, limit], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            })?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
     /// 搜索工作记忆
-    /// 第一阶段使用结构化检索 + Rust 侧评分，不依赖向量库。
+    /// 使用 FTS5 全文检索，支持中英文混合查询。
+    /// 回退到关键词匹配当 FTS 无结果时。
+    /// 搜索工作记忆
+    /// 使用 FTS5 全文检索，支持中英文混合查询。
+    /// FTS 无结果时回退到关键词匹配。
     pub fn search_memory(
         &self,
         query: &str,
@@ -1997,10 +2241,6 @@ impl Database {
         date_to: Option<&str>,
         limit: usize,
     ) -> Result<Vec<MemorySearchItem>> {
-        let conn = self.conn.lock().map_err(|e| {
-            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
-        })?;
-
         let trimmed_query = query.trim();
         if trimmed_query.is_empty() {
             return Ok(Vec::new());
@@ -2011,10 +2251,118 @@ impl Database {
         let (start_ts, end_ts) = parse_date_bounds(date_from, date_to);
         let report_date_from = date_from.map(|s| s.to_string());
         let report_date_to = date_to.map(|s| s.to_string());
+        let fts_query = Self::build_fts_query(trimmed_query);
 
         let mut items = Vec::new();
 
-        let mut activity_stmt = conn.prepare(
+        // === FTS5 检索活动记录 ===
+        if let Ok(fts_rows) = self.search_activities_fts(&fts_query, start_ts, end_ts, fetch_limit) {
+            for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration, _rank) in fts_rows {
+                // FTS rank 是负数，越小越好；转换为正数分数
+                let score = 200i64; // FTS 匹配即高分
+
+                let date = Local
+                    .timestamp_opt(timestamp, 0)
+                    .earliest()
+                    .map(|dt| dt.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default();
+
+                let excerpt = pick_excerpt(&[
+                    ocr_text.clone().unwrap_or_default(),
+                    browser_url.clone().unwrap_or_default(),
+                    window_title.clone(),
+                ]);
+
+                items.push(MemorySearchItem {
+                    source_type: "activity".to_string(),
+                    source_id: Some(id),
+                    date,
+                    timestamp,
+                    title: if window_title.trim().is_empty() {
+                        app_name.clone()
+                    } else {
+                        window_title.clone()
+                    },
+                    excerpt,
+                    app_name: Some(crate::categorize::normalize_display_app_name(&app_name)),
+                    browser_url,
+                    duration: Some(duration),
+                    score,
+                });
+            }
+        }
+
+        // === FTS5 检索小时摘要 ===
+        if let Ok(fts_rows) = self.search_hourly_fts(&fts_query, report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit) {
+            for (id, date, hour, summary, main_apps, total_duration, created_at, _rank) in fts_rows {
+                items.push(MemorySearchItem {
+                    source_type: "hourly_summary".to_string(),
+                    source_id: Some(id),
+                    date: date.clone(),
+                    timestamp: created_at,
+                    title: format!("{date} {:02}:00 小时摘要", hour),
+                    excerpt: pick_excerpt(&[summary.clone(), main_apps.clone()]),
+                    app_name: None,
+                    browser_url: None,
+                    duration: Some(total_duration),
+                    score: 180,
+                });
+            }
+        }
+
+        // === FTS5 检索日报 ===
+        if let Ok(fts_rows) = self.search_reports_fts(&fts_query, report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit) {
+            for (date, content, ai_mode, model_name, created_at, _rank) in fts_rows {
+                items.push(MemorySearchItem {
+                    source_type: "daily_report".to_string(),
+                    source_id: None,
+                    date: date.clone(),
+                    timestamp: created_at,
+                    title: format!("{date} 日报"),
+                    excerpt: pick_excerpt(&[content]),
+                    app_name: None,
+                    browser_url: None,
+                    duration: None,
+                    score: 160,
+                });
+            }
+        }
+
+        // === FTS 无结果时回退到关键词匹配 ===
+        if items.is_empty() {
+            return self.search_memory_fallback(trimmed_query, start_ts, end_ts, &report_date_from, &report_date_to, limit);
+        }
+
+        items.sort_by(|a, b| {
+            b.score
+                .cmp(&a.score)
+                .then_with(|| b.timestamp.cmp(&a.timestamp))
+                .then_with(|| a.title.cmp(&b.title))
+        });
+        items.truncate(limit);
+
+        Ok(items)
+    }
+
+    /// FTS 无结果时的回退搜索：使用原始关键词匹配
+    fn search_memory_fallback(
+        &self,
+        query: &str,
+        start_ts: Option<i64>,
+        end_ts: Option<i64>,
+        date_from: &Option<String>,
+        date_to: &Option<String>,
+        limit: usize,
+    ) -> Result<Vec<MemorySearchItem>> {
+        let conn = self.conn.lock().map_err(|e| {
+            AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
+        })?;
+
+        let fetch_limit = (limit as i64) * 12;
+        let mut items = Vec::new();
+
+        // 回退：activities
+        let mut stmt = conn.prepare(
             "SELECT id, timestamp, app_name, window_title, ocr_text, browser_url, duration
              FROM activities
              WHERE (?1 IS NULL OR timestamp >= ?1)
@@ -2023,15 +2371,7 @@ impl Database {
              LIMIT ?3",
         )?;
 
-        let activity_rows: Vec<(
-            i64,
-            i64,
-            String,
-            String,
-            Option<String>,
-            Option<String>,
-            i64,
-        )> = activity_stmt
+        let rows: Vec<(i64, i64, String, String, Option<String>, Option<String>, i64)> = stmt
             .query_map(params![start_ts, end_ts, fetch_limit], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -2046,11 +2386,9 @@ impl Database {
             .filter_map(|row| row.ok())
             .collect();
 
-        for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration) in
-            activity_rows
-        {
+        for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration) in rows {
             let score = score_memory_match(
-                trimmed_query,
+                query,
                 &[
                     &app_name,
                     &window_title,
@@ -2092,122 +2430,10 @@ impl Database {
             });
         }
 
-        let mut hourly_stmt = conn.prepare(
-            "SELECT id, date, hour, summary, main_apps, total_duration, created_at
-             FROM hourly_summaries
-             WHERE (?1 IS NULL OR date >= ?1)
-               AND (?2 IS NULL OR date <= ?2)
-             ORDER BY created_at DESC
-             LIMIT ?3",
-        )?;
-
-        let hourly_rows: Vec<(i64, String, i32, String, String, i64, i64)> = hourly_stmt
-            .query_map(
-                params![
-                    report_date_from.as_deref(),
-                    report_date_to.as_deref(),
-                    fetch_limit
-                ],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, i32>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                },
-            )?
-            .filter_map(|row| row.ok())
-            .collect();
-
-        for (id, date, hour, summary, main_apps, total_duration, created_at) in hourly_rows {
-            let score = score_memory_match(
-                trimmed_query,
-                &[&summary, &main_apps, &date, &hour.to_string()],
-            );
-            if score <= 0 {
-                continue;
-            }
-
-            items.push(MemorySearchItem {
-                source_type: "hourly_summary".to_string(),
-                source_id: Some(id),
-                date: date.clone(),
-                timestamp: created_at,
-                title: format!("{date} {:02}:00 小时摘要", hour),
-                excerpt: pick_excerpt(&[summary.clone(), main_apps.clone()]),
-                app_name: None,
-                browser_url: None,
-                duration: Some(total_duration),
-                score,
-            });
-        }
-
-        let mut report_stmt = conn.prepare(
-            "SELECT date, content, ai_mode, model_name, created_at
-             FROM daily_reports_localized
-             WHERE (?1 IS NULL OR date >= ?1)
-               AND (?2 IS NULL OR date <= ?2)
-             ORDER BY created_at DESC
-             LIMIT ?3",
-        )?;
-
-        let report_rows: Vec<(String, String, String, Option<String>, i64)> = report_stmt
-            .query_map(
-                params![
-                    report_date_from.as_deref(),
-                    report_date_to.as_deref(),
-                    fetch_limit
-                ],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                    ))
-                },
-            )?
-            .filter_map(|row| row.ok())
-            .collect();
-
-        for (date, content, ai_mode, model_name, created_at) in report_rows {
-            let score = score_memory_match(
-                trimmed_query,
-                &[
-                    &date,
-                    &content,
-                    &ai_mode,
-                    model_name.as_deref().unwrap_or(""),
-                ],
-            );
-            if score <= 0 {
-                continue;
-            }
-
-            items.push(MemorySearchItem {
-                source_type: "daily_report".to_string(),
-                source_id: None,
-                date: date.clone(),
-                timestamp: created_at,
-                title: format!("{date} 日报"),
-                excerpt: pick_excerpt(&[content]),
-                app_name: None,
-                browser_url: None,
-                duration: None,
-                score,
-            });
-        }
-
         items.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
                 .then_with(|| b.timestamp.cmp(&a.timestamp))
-                .then_with(|| a.title.cmp(&b.title))
         });
         items.truncate(limit);
 

@@ -827,6 +827,10 @@ enum AssistantQuestionKind {
     OutcomeRecap,
     ProcessRecap,
     EvidenceQuery,
+    TimeStat,
+    Comparison,
+    Listing,
+    Freeform,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -842,6 +846,10 @@ impl AssistantQuestionKind {
             AssistantQuestionKind::OutcomeRecap => "结果复盘",
             AssistantQuestionKind::ProcessRecap => "过程复盘",
             AssistantQuestionKind::EvidenceQuery => "依据追问",
+            AssistantQuestionKind::TimeStat => "时间统计",
+            AssistantQuestionKind::Comparison => "对比分析",
+            AssistantQuestionKind::Listing => "清单列举",
+            AssistantQuestionKind::Freeform => "自由提问",
         }
     }
 }
@@ -850,13 +858,37 @@ fn build_history_context(history: &[AssistantChatMessage]) -> String {
     history
         .iter()
         .rev()
-        .take(6)
+        .take(10)
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
         .map(|message| format!("{}: {}", message.role, message.content.trim()))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Extract contextual time keywords from recent user messages to improve
+/// continuity across turns (e.g. "今天", "昨天", "本周", "最近").
+fn extract_contextual_entities(history: &[AssistantChatMessage]) -> String {
+    let time_keywords = ["今天", "昨天", "本周", "上周", "本月", "上月", "最近"];
+    let mut found = Vec::new();
+
+    for msg in history.iter().rev().take(6) {
+        if msg.role != "user" {
+            continue;
+        }
+        for keyword in &time_keywords {
+            if msg.content.contains(keyword) && !found.contains(&(*keyword).to_string()) {
+                found.push(keyword.to_string());
+            }
+        }
+    }
+
+    if found.is_empty() {
+        String::new()
+    } else {
+        format!("上下文提及的时间关键词：{}", found.join("、"))
+    }
 }
 
 fn is_short_follow_up_question(question: &str) -> bool {
@@ -950,6 +982,51 @@ fn detect_question_kind_from_text(text: &str) -> AssistantQuestionKind {
         return AssistantQuestionKind::StageSummary;
     }
 
+    let time_stat_patterns = [
+        "花了多少时间",
+        "多少时间",
+        "总时长",
+        "时间分布",
+        "时间占比",
+    ];
+    if time_stat_patterns
+        .iter()
+        .any(|pattern| context.contains(pattern))
+    {
+        return AssistantQuestionKind::TimeStat;
+    }
+
+    let comparison_patterns = [
+        "对比",
+        "比较",
+        "和上周",
+        "相比",
+        "比上周",
+        "变化",
+        "差异",
+    ];
+    if comparison_patterns
+        .iter()
+        .any(|pattern| context.contains(pattern))
+    {
+        return AssistantQuestionKind::Comparison;
+    }
+
+    let listing_patterns = [
+        "列出",
+        "列举",
+        "所有",
+        "全部",
+        "哪些",
+        "清单",
+    ];
+    if listing_patterns
+        .iter()
+        .any(|pattern| context.contains(pattern))
+    {
+        return AssistantQuestionKind::Listing;
+    }
+
     let evidence_patterns = [
         "依据",
         "证据",
@@ -1032,7 +1109,7 @@ fn infer_question_kind_from_assistant_reply(
     let mut best_kind = AssistantQuestionKind::StageSummary;
     let mut best_score = 0i32;
 
-    let candidates: [(AssistantQuestionKind, &[&str]); 4] = [
+    let candidates: Vec<(AssistantQuestionKind, &[&str])> = vec![
         (
             AssistantQuestionKind::EvidenceQuery,
             &[
@@ -1062,6 +1139,38 @@ fn infer_question_kind_from_assistant_reply(
         (
             AssistantQuestionKind::StageSummary,
             &["结论", "主线", "阶段", "主要做了什么", "工作重心"],
+        ),
+        (
+            AssistantQuestionKind::TimeStat,
+            &[
+                "## 时间统计",
+                "时长",
+                "时间分布",
+                "占比",
+                "花了多少时间",
+            ],
+        ),
+        (
+            AssistantQuestionKind::Comparison,
+            &[
+                "## 对比分析",
+                "对比",
+                "比较",
+                "变化",
+                "差异",
+                "相比",
+            ],
+        ),
+        (
+            AssistantQuestionKind::Listing,
+            &[
+                "## 清单",
+                "列举",
+                "列出",
+                "所有",
+                "全部",
+                "清单",
+            ],
         ),
     ];
 
@@ -1102,7 +1211,11 @@ fn detect_assistant_question_kind_with_mode(
     let trimmed = question.trim();
     let current_kind = detect_question_kind_from_text(trimmed);
 
-    if current_kind == AssistantQuestionKind::EvidenceQuery {
+    if current_kind == AssistantQuestionKind::EvidenceQuery
+        || current_kind == AssistantQuestionKind::TimeStat
+        || current_kind == AssistantQuestionKind::Comparison
+        || current_kind == AssistantQuestionKind::Listing
+    {
         return current_kind;
     }
 
@@ -1172,6 +1285,29 @@ fn map_question_kind_to_tools(kind: AssistantQuestionKind) -> Vec<AssistantTool>
             AssistantTool::Memory,
             AssistantTool::Sessions,
             AssistantTool::Intents,
+        ],
+        AssistantQuestionKind::TimeStat => vec![
+            AssistantTool::Intents,
+            AssistantTool::Sessions,
+            AssistantTool::Memory,
+        ],
+        AssistantQuestionKind::Comparison => vec![
+            AssistantTool::Review,
+            AssistantTool::Intents,
+            AssistantTool::Sessions,
+            AssistantTool::Memory,
+        ],
+        AssistantQuestionKind::Listing => vec![
+            AssistantTool::Sessions,
+            AssistantTool::Intents,
+            AssistantTool::Memory,
+        ],
+        AssistantQuestionKind::Freeform => vec![
+            AssistantTool::Memory,
+            AssistantTool::Sessions,
+            AssistantTool::Intents,
+            AssistantTool::Review,
+            AssistantTool::Todos,
         ],
     }
 }
@@ -1309,7 +1445,7 @@ fn build_assistant_prompt(
         question_kind.label()
     );
 
-    let recent_history: Vec<_> = history.iter().rev().take(4).collect::<Vec<_>>();
+    let recent_history: Vec<_> = history.iter().rev().take(8).collect::<Vec<_>>();
     if !recent_history.is_empty() {
         prompt.push_str("\n【对话上下文】\n");
         for msg in recent_history.into_iter().rev() {
@@ -1326,6 +1462,11 @@ fn build_assistant_prompt(
             };
             prompt.push_str(&format!("{role_label}：{short}\n"));
         }
+    }
+
+    let entity_ctx = extract_contextual_entities(history);
+    if !entity_ctx.is_empty() {
+        prompt.push_str(&format!("\n{entity_ctx}\n"));
     }
 
     if !references.is_empty() {
@@ -1364,17 +1505,78 @@ fn build_assistant_prompt(
         prompt.push('\n');
     }
 
-    prompt.push_str(match locale {
-        AppLocale::ZhCn => {
-            "\n输出要求：\n1. 用中文回答，直接回应用户的问题，不要泛泛而谈。\n2. 使用清晰的 Markdown 排版（标题、列表、加粗等）。\n3. 必须按以下固定结构输出：`## 结论`、`## 结果概览`、`## 过程分析`、`## 依据补充`、`## 复盘总结`。\n4. 整体风格是“先结果，再过程”，每个结论自然带上依据，不要写成审计报告。\n5. 列举时使用无序列表，一行一条。\n6. 不要提及内部分析工具名称。\n7. 不要虚构日期、任务或结果。\n"
+    // 主动洞察：检测异常模式
+    let insights = generate_active_insights(intents, review, sessions);
+    if !insights.is_empty() {
+        prompt.push_str("\n【主动洞察】\n以下是从数据中检测到的异常模式，请在回答中自然提及：\n");
+        for insight in &insights {
+            prompt.push_str(&format!("- {insight}\n"));
         }
-        AppLocale::ZhTw => {
+    }
+
+    let output_requirements = match (locale, question_kind) {
+        (AppLocale::ZhCn, AssistantQuestionKind::TimeStat) => {
+            "\n输出要求：\n1. 用中文回答，直接回应用户关于时间的问题。\n2. 使用清晰的 Markdown 排版。\n3. 输出结构：`## 结论`（含时长数据摘要）、`## 时间分布`（按意图或 session 拆分）。\n4. 数据不足时明确说明，不要编造。\n5. 不要提及内部分析工具名称。\n"
+        }
+        (AppLocale::ZhCn, AssistantQuestionKind::Comparison) => {
+            "\n输出要求：\n1. 用中文回答，聚焦对比分析。\n2. 使用清晰的 Markdown 排版。\n3. 输出结构：`## 结论`（对比核心差异）、`## 对比分析`（逐维度对比）。\n4. 每个维度说明变化方向和幅度。\n5. 不要提及内部分析工具名称。\n"
+        }
+        (AppLocale::ZhCn, AssistantQuestionKind::Listing) => {
+            "\n输出要求：\n1. 用中文回答，列出所有相关条目。\n2. 使用无序列表，一行一条，保持简洁。\n3. 输出结构：`## 清单`（完整列举）、`## 补充说明`（可选）。\n4. 不要遗漏，但也不要虚构不存在的条目。\n5. 不要提及内部分析工具名称。\n"
+        }
+        (AppLocale::ZhCn, AssistantQuestionKind::Freeform) => {
+            "\n输出要求：\n1. 用中文回答，灵活回应用户问题。\n2. 使用清晰的 Markdown 排版。\n3. 根据问题性质自由组织内容，可包含数据、分析、建议等。\n4. 先给出核心回答，再展开细节。\n5. 不要提及内部分析工具名称。\n6. 不要虚构日期、任务或结果。\n"
+        }
+        (AppLocale::ZhCn, _) => {
+            "\n输出要求：\n1. 用中文回答，直接回应用户的问题，不要泛泛而谈。\n2. 使用清晰的 Markdown 排版（标题、列表、加粗等）。\n3. 必须按以下固定结构输出：`## 结论`、`## 结果概览`、`## 过程分析`、`## 依据补充`、`## 复盘总结`。\n4. 整体风格是\u{201c}先结果，再过程\u{201d}，每个结论自然带上依据，不要写成审计报告。\n5. 列举时使用无序列表，一行一条。\n6. 不要提及内部分析工具名称。\n7. 不要虚构日期、任务或结果。\n"
+        }
+        (AppLocale::ZhTw, AssistantQuestionKind::TimeStat) => {
+            "\n輸出要求：\n1. 請用繁體中文回答，聚焦時間統計。\n2. 使用清楚的 Markdown 排版。\n3. 輸出結構：`## 結論`（含時長數據摘要）、`## 時間分布`（按意圖或 session 拆分）。\n4. 數據不足時明確說明，不要編造。\n5. 不要提及內部分析工具名稱。\n"
+        }
+        (AppLocale::ZhTw, AssistantQuestionKind::Comparison) => {
+            "\n輸出要求：\n1. 請用繁體中文回答，聚焦對比分析。\n2. 使用清楚的 Markdown 排版。\n3. 輸出結構：`## 結論`（對比核心差異）、`## 對比分析`（逐維度對比）。\n4. 每個維度說明變化方向和幅度。\n5. 不要提及內部分析工具名稱。\n"
+        }
+        (AppLocale::ZhTw, AssistantQuestionKind::Listing) => {
+            "\n輸出要求：\n1. 請用繁體中文回答，列出所有相關條目。\n2. 使用無序列表，一行一條，保持簡潔。\n3. 輸出結構：`## 清單`（完整列舉）、`## 補充說明`（可選）。\n4. 不要遺漏，但也不要虛構不存在的條目。\n5. 不要提及內部分析工具名稱。\n"
+        }
+        (AppLocale::ZhTw, AssistantQuestionKind::Freeform) => {
+            "\n輸出要求：\n1. 請用繁體中文回答，靈活回應使用者問題。\n2. 使用清楚的 Markdown 排版。\n3. 根據問題性質自由組織內容，可包含數據、分析、建議等。\n4. 先給出核心回答，再展開細節。\n5. 不要提及內部分析工具名稱。\n6. 不要虛構日期、任務或結果。\n"
+        }
+        (AppLocale::ZhTw, _) => {
             "\n輸出要求：\n1. 請用繁體中文回答，直接回應使用者問題，不要空泛。\n2. 使用清楚的 Markdown 排版（標題、列表、粗體等）。\n3. 必須按以下固定結構輸出：`## 結論`、`## 結果概覽`、`## 過程分析`、`## 依據補充`、`## 復盤總結`。\n4. 整體風格是先結果、再過程，每個結論都要自然帶出依據。\n5. 列舉時使用無序列表，一行一條。\n6. 不要提及內部分析工具名稱。\n7. 不要虛構日期、任務或結果。\n"
         }
-        AppLocale::En => {
+        (AppLocale::En, AssistantQuestionKind::TimeStat) => {
+            "\nOutput requirements:\n1. Answer in English, focus on time statistics.\n2. Use clear Markdown formatting.\n3. Use this structure: `## Conclusion` (with duration summary), `## Time Distribution` (by intent or session).\n4. Clearly state when data is insufficient; do not fabricate.\n5. Do not mention internal tool names.\n"
+        }
+        (AppLocale::En, AssistantQuestionKind::Comparison) => {
+            "\nOutput requirements:\n1. Answer in English, focus on comparative analysis.\n2. Use clear Markdown formatting.\n3. Use this structure: `## Conclusion` (core differences), `## Comparison` (dimension-by-dimension).\n4. For each dimension, state direction and magnitude of change.\n5. Do not mention internal tool names.\n"
+        }
+        (AppLocale::En, AssistantQuestionKind::Listing) => {
+            "\nOutput requirements:\n1. Answer in English, list all relevant items.\n2. Use unordered bullet lists, one item per line, keep it concise.\n3. Use this structure: `## Listing` (complete list), `## Notes` (optional).\n4. Do not omit real items or fabricate non-existent ones.\n5. Do not mention internal tool names.\n"
+        }
+        (AppLocale::En, AssistantQuestionKind::Freeform) => {
+            "\nOutput requirements:\n1. Answer in English, respond flexibly to the user's question.\n2. Use clear Markdown formatting.\n3. Organize content freely based on the question nature; may include data, analysis, or suggestions.\n4. Lead with the core answer, then expand with details.\n5. Do not mention internal tool names.\n6. Do not invent dates, tasks, or outcomes.\n"
+        }
+        (AppLocale::En, _) => {
             "\nOutput requirements:\n1. Answer in English and respond to the user's question directly.\n2. Use clear Markdown formatting with headings, lists, and bold text where helpful.\n3. Use this exact structure: `## Conclusion`, `## Overview`, `## Process Analysis`, `## Evidence`, `## Recap`.\n4. Lead with results first, then explain the process and evidence.\n5. When listing points, use unordered bullets with one point per line.\n6. Do not mention internal tool names.\n7. Do not invent dates, tasks, or outcomes.\n"
         }
-    });
+    };
+    prompt.push_str(output_requirements);
+
+    let few_shot = match question_kind {
+        AssistantQuestionKind::TimeStat => {
+            "\n【示例】\n用户：花了多少时间在编码上？\n助手：\n## 结论\n这段时间编码相关工作约占总时长的 45%，主要集中在代码审查和功能开发。\n## 时间分布\n- **代码审查**：2 小时 15 分钟，占 28%\n- **功能开发**：1 小时 30 分钟，占 19%\n- **文档编写**：45 分钟，占 10%\n\n"
+        }
+        AssistantQuestionKind::Comparison => {
+            "\n【示例】\n用户：和上周相比有什么变化？\n助手：\n## 结论\n本周总投入时间比上周增加约 20%，但深度工作时段减少了。\n## 对比分析\n- **总时长**：本周 25 小时 vs 上周 21 小时\n- **深度工作**：本周 6 段 vs 上周 9 段\n- **任务切换**：本周更频繁，可能影响效率\n\n"
+        }
+        AssistantQuestionKind::Listing => {
+            "\n【示例】\n用户：列出所有完成的任务\n助手：\n## 清单\n- 修复登录页面的样式问题（4月25日）\n- 完成用户权限模块的重构（4月26日）\n- 编写 API 接口文档（4月27日）\n- 部署测试环境并验证（4月28日）\n\n"
+        }
+        _ => "",
+    };
+    prompt.push_str(few_shot);
+
     prompt.push_str(assistant_output_language_requirement(locale));
 
     prompt
@@ -1398,6 +1600,10 @@ fn build_reference_line(item: &MemorySearchItem) -> String {
 }
 
 fn push_markdown_section(answer: &mut String, title: &str, lines: Vec<String>, empty_text: &str) {
+    if lines.is_empty() && empty_text.is_empty() {
+        return;
+    }
+
     answer.push_str(title);
     answer.push_str("\n\n");
 
@@ -1446,16 +1652,23 @@ fn collect_session_lines(sessions: Option<&[WorkSession]>, limit: usize) -> Vec<
 fn collect_intent_lines(intents: Option<&IntentAnalysisResult>, limit: usize) -> Vec<String> {
     intents
         .map(|result| {
+            let total_duration: i64 = result.summary.iter().map(|item| item.duration).sum();
             result
                 .summary
                 .iter()
                 .take(limit)
                 .map(|item| {
+                    let pct = if total_duration > 0 {
+                        item.duration as f64 / total_duration as f64 * 100.0
+                    } else {
+                        0.0
+                    };
                     format!(
-                        "**{}**：{}，{} 段",
+                        "**{}**：{}，{} 段（{:.0}%）",
                         item.label,
                         crate::analysis::format_duration(item.duration),
-                        item.session_count
+                        item.session_count,
+                        pct
                     )
                 })
                 .collect::<Vec<_>>()
@@ -1476,36 +1689,178 @@ fn collect_todo_lines(todos: Option<&TodoExtractionResult>, limit: usize) -> Vec
         .unwrap_or_default()
 }
 
-fn collect_review_lines(review: Option<&WeeklyReviewResult>) -> Vec<String> {
-    review
-        .map(|result| {
-            let mut lines = vec![format!(
-                "总投入 {}，活跃 {} 天，累计 {} 个 session，深度工作 {} 段",
-                crate::analysis::format_duration(result.total_duration),
-                result.active_days,
-                result.session_count,
-                result.deep_work_sessions
-            )];
+/// 一行摘要：⏱ Xh | 🎯 N 个意图 | 📝 M 条记录
+fn build_summary_header(
+    review: Option<&WeeklyReviewResult>,
+    intents: Option<&IntentAnalysisResult>,
+    sessions: Option<&[WorkSession]>,
+) -> String {
+    let mut parts = Vec::new();
 
-            lines.extend(
-                result
-                    .highlights
-                    .iter()
-                    .take(3)
-                    .map(|item| format!("阶段重点：{item}")),
-            );
+    if let Some(review) = review {
+        let total_hours = review.total_duration as f64 / 3600.0;
+        parts.push(format!("⏱ {:.1}h", total_hours));
+        parts.push(format!("活跃 {} 天", review.active_days));
+    }
 
-            lines.extend(
-                result
-                    .risks
-                    .iter()
-                    .take(2)
-                    .map(|item| format!("需要留意：{item}")),
-            );
+    if let Some(intents) = intents {
+        let count = intents.summary.len();
+        if count > 0 {
+            parts.push(format!("🎯 {} 个意图", count));
+        }
+    }
 
-            lines
-        })
-        .unwrap_or_default()
+    if let Some(sessions) = sessions {
+        if !sessions.is_empty() {
+            parts.push(format!("📝 {} 个 session", sessions.len()));
+        }
+    }
+
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    parts.join(" | ")
+}
+
+/// 根据意图类型生成一句话结论
+fn build_conclusion_line(
+    _question: &str,
+    kind: AssistantQuestionKind,
+    intent_lines: &[String],
+    session_lines: &[String],
+    todo_lines: &[String],
+    reference_lines: &[String],
+    review: Option<&WeeklyReviewResult>,
+) -> String {
+    match kind {
+        AssistantQuestionKind::StageSummary => {
+            if !intent_lines.is_empty() {
+                let top_intents: Vec<&str> = intent_lines.iter().take(2)
+                    .map(|l| l.split('：').next().unwrap_or(l).trim_start_matches("**").trim_end_matches("**"))
+                    .collect();
+                format!("主线工作集中在 **{}**。", top_intents.join("**、**"))
+            } else if let Some(r) = review {
+                format!("总投入 {:.1}h，活跃 {} 天。", r.total_duration as f64 / 3600.0, r.active_days)
+            } else {
+                "当前记录不足以给出明确结论。".to_string()
+            }
+        }
+        AssistantQuestionKind::OutcomeRecap => {
+            if !todo_lines.is_empty() {
+                format!("已有阶段性推进，但仍有 {} 项待收口。", todo_lines.len())
+            } else if let Some(r) = review {
+                format!("完成 {} 个 session，深度工作 {} 段。", r.session_count, r.deep_work_sessions)
+            } else {
+                "当前记录能看到零散进展。".to_string()
+            }
+        }
+        AssistantQuestionKind::ProcessRecap => {
+            if !session_lines.is_empty() {
+                format!("共 {} 个工作段，时间投入可追溯。", session_lines.len())
+            } else {
+                "缺少足够的连续工作段来还原过程。".to_string()
+            }
+        }
+        AssistantQuestionKind::EvidenceQuery => {
+            if !reference_lines.is_empty() {
+                format!("找到 {} 条可引用的记录依据。", reference_lines.len())
+            } else {
+                "当前没有检索到可直接引用的记录。".to_string()
+            }
+        }
+        AssistantQuestionKind::TimeStat => {
+            if !intent_lines.is_empty() {
+                format!("时间主要分布在 {}。", intent_lines.iter().take(2).map(|l| l.split('：').next().unwrap_or(l).trim_start_matches("**").trim_end_matches("**")).collect::<Vec<_>>().join("、"))
+            } else {
+                "当前记录不足以统计时间分布。".to_string()
+            }
+        }
+        AssistantQuestionKind::Comparison => "基于已有数据进行对比分析。".to_string(),
+        AssistantQuestionKind::Listing => {
+            let count = session_lines.len() + intent_lines.len();
+            if count > 0 {
+                format!("共找到 {count} 条相关记录。")
+            } else {
+                "当前记录中没有找到匹配的条目。".to_string()
+            }
+        }
+        AssistantQuestionKind::Freeform => {
+            if !intent_lines.is_empty() || !session_lines.is_empty() {
+                "基于当前可用记录的回答如下。".to_string()
+            } else {
+                "当前记录较为有限。".to_string()
+            }
+        }
+    }
+}
+
+/// 生成带进度条的时间分布
+fn build_time_distribution(intents: &IntentAnalysisResult) -> String {
+    let total: i64 = intents.summary.iter().map(|i| i.duration).sum();
+    if total <= 0 {
+        return String::new();
+    }
+
+    let mut lines = Vec::new();
+    let bar_width = 10;
+
+    for item in intents.summary.iter().take(6) {
+        let pct = item.duration as f64 / total as f64;
+        let filled = (pct * bar_width as f64).round() as usize;
+        let empty = bar_width - filled;
+        let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+        let hours = crate::analysis::format_duration(item.duration);
+        lines.push(format!("{}  {}  {}（{:.0}%）", item.label, bar, hours, pct * 100.0));
+    }
+
+    lines.join("\n")
+}
+
+/// 根据当前回答生成追问引导
+fn build_followup_hints(
+    kind: AssistantQuestionKind,
+    intent_lines: &[String],
+    session_lines: &[String],
+    todo_lines: &[String],
+) -> String {
+    let mut hints = Vec::new();
+
+    match kind {
+        AssistantQuestionKind::StageSummary | AssistantQuestionKind::Freeform => {
+            if session_lines.len() > 2 {
+                hints.push("想看某个 session 的详细情况？告诉我时间段即可。".to_string());
+            }
+            if !todo_lines.is_empty() {
+                hints.push("需要我列出待办事项的优先级吗？".to_string());
+            }
+        }
+        AssistantQuestionKind::TimeStat => {
+            hints.push("想看具体某个应用的时间占比？告诉我应用名。".to_string());
+            hints.push("需要对比不同时间段的时间分布吗？".to_string());
+        }
+        AssistantQuestionKind::ProcessRecap => {
+            if intent_lines.len() > 1 {
+                hints.push("想深入看某个意图下的具体 session？".to_string());
+            }
+        }
+        AssistantQuestionKind::OutcomeRecap => {
+            if !todo_lines.is_empty() {
+                hints.push("需要我把待办按优先级排序吗？".to_string());
+            }
+        }
+        _ => {}
+    }
+
+    if hints.is_empty() {
+        return String::new();
+    }
+
+    let mut result = String::from("**可以继续追问：**\n");
+    for hint in hints.iter().take(2) {
+        result.push_str(&format!("- {hint}\n"));
+    }
+    result
 }
 
 fn build_fallback_assistant_answer(
@@ -1519,174 +1874,124 @@ fn build_fallback_assistant_answer(
     _tool_labels: &[String],
 ) -> String {
     let mut answer = String::new();
-    let intent_lines = collect_intent_lines(intents, 3);
-    let session_lines = collect_session_lines(sessions, 3);
-    let todo_lines = collect_todo_lines(todos, 3);
-    let review_lines = collect_review_lines(review);
+    let intent_lines = collect_intent_lines(intents, 6);
+    let session_lines = collect_session_lines(sessions, 8);
+    let todo_lines = collect_todo_lines(todos, 5);
     let reference_lines = collect_reference_lines(references, 5);
+    let insights = generate_active_insights(intents, review, sessions);
 
-    let conclusion_lines = match question_kind {
-        AssistantQuestionKind::StageSummary => {
-            if !intent_lines.is_empty() {
-                vec![format!(
-                    "围绕“{question}”来看，这段时间的主线工作主要集中在 {}。",
-                    intent_lines
-                        .iter()
-                        .take(2)
-                        .map(|line| line.replace("- ", ""))
-                        .collect::<Vec<_>>()
-                        .join("、")
-                )]
-            } else if !review_lines.is_empty() {
-                vec![
-                    "当前记录能看到明确的阶段性主线，但细节主要来自复盘摘要而不是细粒度分类。"
-                        .to_string(),
-                ]
-            } else {
-                vec!["当前记录不足以完整还原阶段主线，只能给出有限概览。".to_string()]
-            }
-        }
-        AssistantQuestionKind::OutcomeRecap => {
-            if !todo_lines.is_empty() {
-                vec![
-                    "当前更像是“已有阶段结果 + 仍有收口事项”的状态。".to_string(),
-                    format!("未完全收口的重点主要有：{}。", todo_lines.join("、")),
-                ]
-            } else if !review_lines.is_empty() {
-                vec!["能确认有阶段性推进结果，但未提取到明确的待收口事项。".to_string()]
-            } else {
-                vec!["当前记录能看到零散进展，但不足以明确界定阶段结果。".to_string()]
-            }
-        }
-        AssistantQuestionKind::ProcessRecap => {
-            if !session_lines.is_empty() {
-                vec![
-                    "这段时间更像是围绕少数主题持续推进，而不是完全碎片化切换。".to_string(),
-                    format!("最典型的推进片段包括：{}。", session_lines.join("、")),
-                ]
-            } else if !intent_lines.is_empty() {
-                vec!["时间投入方向是可见的，但缺少足够的连续工作段来还原完整过程。".to_string()]
-            } else {
-                vec!["当前记录不足以支撑过程复盘，只能看到零散痕迹。".to_string()]
-            }
-        }
-        AssistantQuestionKind::EvidenceQuery => {
-            if !reference_lines.is_empty() {
-                vec![
-                    "当前结论主要来自直接命中的活动记录，以及能对上时间段的 session / 意图摘要。"
-                        .to_string(),
-                    "下面我会把可回溯的依据按记录、过程和阶段摘要拆开列出。".to_string(),
-                ]
-            } else {
-                vec!["当前没有足够的直接命中记录，因此依据链条偏弱。".to_string()]
-            }
-        }
-    };
-    push_markdown_section(
-        &mut answer,
-        "## 结论",
-        conclusion_lines,
-        "暂无足够记录支撑结论。",
-    );
+    // === 1. 一行摘要：关键指标 ===
+    let summary_line = build_summary_header(review, intents, sessions);
+    if !summary_line.is_empty() {
+        answer.push_str(&summary_line);
+        answer.push_str("\n\n");
+    }
 
-    let overview_lines = match question_kind {
-        AssistantQuestionKind::StageSummary => {
-            let mut lines = review_lines.clone();
-            lines.extend(intent_lines.clone());
-            lines
-        }
-        AssistantQuestionKind::OutcomeRecap => {
-            let mut lines = review_lines.clone();
-            lines.extend(todo_lines.clone());
-            lines
-        }
-        AssistantQuestionKind::ProcessRecap => {
-            let mut lines = intent_lines.clone();
-            lines.extend(session_lines.clone());
-            lines
-        }
-        AssistantQuestionKind::EvidenceQuery => {
-            let mut lines = reference_lines.clone();
-            lines.extend(review_lines.iter().take(2).cloned());
-            lines
-        }
-    };
-    push_markdown_section(
-        &mut answer,
-        "## 结果概览",
-        overview_lines,
-        "暂无足够记录形成结果概览。",
-    );
+    // === 2. 结论：按意图类型给出核心回答 ===
+    let conclusion = build_conclusion_line(question, question_kind, &intent_lines, &session_lines, &todo_lines, &reference_lines, review);
+    if !conclusion.is_empty() {
+        answer.push_str("## 结论\n\n");
+        answer.push_str(&conclusion);
+        answer.push_str("\n\n");
+    }
 
-    let process_lines = match question_kind {
-        AssistantQuestionKind::StageSummary | AssistantQuestionKind::OutcomeRecap => {
-            let mut lines = session_lines.clone();
-            lines.extend(intent_lines.clone());
-            lines
+    // === 3. 时间分布：可视化进度条 ===
+    if let Some(intents) = intents {
+        if !intents.summary.is_empty() {
+            answer.push_str("## 时间分布\n\n");
+            answer.push_str(&build_time_distribution(intents));
+            answer.push_str("\n");
         }
-        AssistantQuestionKind::ProcessRecap => {
-            let mut lines = session_lines.clone();
-            lines.extend(review_lines.iter().take(2).cloned());
-            lines
-        }
-        AssistantQuestionKind::EvidenceQuery => {
-            let mut lines = session_lines.clone();
-            lines.extend(intent_lines.clone());
-            lines
-        }
-    };
-    push_markdown_section(
-        &mut answer,
-        "## 过程分析",
-        process_lines,
-        "暂无足够的过程记录可用于复盘。",
-    );
+    }
 
-    let evidence_lines = if !reference_lines.is_empty() {
-        reference_lines
-    } else if references.iter().any(is_low_signal_reference) {
-        vec![
-            "直接命中的原始记录区分度不高，当前不展开逐条标题，以免窗口壳和菜单词干扰判断。"
-                .to_string(),
-        ]
-    } else if !review_lines.is_empty() {
-        review_lines.iter().take(3).cloned().collect()
-    } else {
-        Vec::new()
-    };
-    push_markdown_section(
-        &mut answer,
-        "## 依据补充",
-        evidence_lines,
-        "当前没有检索到可直接引用的记录依据。",
-    );
+    // === 4. 工作段：按时间线列出 ===
+    if !session_lines.is_empty() {
+        answer.push_str("## 工作段\n\n");
+        for line in session_lines.iter().take(6) {
+            answer.push_str("- ");
+            answer.push_str(line);
+            answer.push('\n');
+        }
+        answer.push('\n');
+    }
 
-    let recap_lines = match question_kind {
-        AssistantQuestionKind::StageSummary => vec![
-            "整体看，这更像是围绕同一条主线持续推进，而不是大范围切题。".to_string(),
-            "如果后续继续追问某个模块，我可以再把对应记录单独展开。".to_string(),
-        ],
-        AssistantQuestionKind::OutcomeRecap => vec![
-            "当前更适合把它理解为“阶段推进中”，而不是“已经全部收口”。".to_string(),
-            "记录能说明结果轮廓，但具体完成定义仍取决于后续补充追问。".to_string(),
-        ],
-        AssistantQuestionKind::ProcessRecap => vec![
-            "从可见记录看，过程脉络比单点结果更清晰。".to_string(),
-            "如果需要，我可以继续把关键时间段按先后顺序串起来。".to_string(),
-        ],
-        AssistantQuestionKind::EvidenceQuery => vec![
-            "当前结论并不是凭空概括，而是来自直接记录命中与阶段摘要的交叉印证。".to_string(),
-            "如果你要继续核对，我更适合沿着具体记录或具体时间段往下展开。".to_string(),
-        ],
-    };
-    push_markdown_section(
-        &mut answer,
-        "## 复盘总结",
-        recap_lines,
-        "暂无进一步复盘总结。",
-    );
+    // === 5. 待办/风险 ===
+    if !todo_lines.is_empty() {
+        answer.push_str("## 待跟进\n\n");
+        for line in todo_lines.iter().take(5) {
+            answer.push_str("- ");
+            answer.push_str(line);
+            answer.push('\n');
+        }
+        answer.push('\n');
+    }
+
+    // === 6. 主动洞察 ===
+    if !insights.is_empty() {
+        answer.push_str("## 主动洞察\n\n");
+        for insight in insights.iter().take(3) {
+            answer.push_str("- ");
+            answer.push_str(insight);
+            answer.push('\n');
+        }
+        answer.push('\n');
+    }
+
+    // === 7. 追问引导 ===
+    let hints = build_followup_hints(question_kind, &intent_lines, &session_lines, &todo_lines);
+    if !hints.is_empty() {
+        answer.push_str("---\n\n");
+        answer.push_str(&hints);
+    }
 
     answer
+}
+
+/// 生成主动洞察——检测异常模式并生成提示
+fn generate_active_insights(
+    intents: Option<&IntentAnalysisResult>,
+    review: Option<&WeeklyReviewResult>,
+    sessions: Option<&[WorkSession]>,
+) -> Vec<String> {
+    let mut insights = Vec::new();
+    if let Some(review) = review {
+        if review.session_count > 0 {
+            let deep_ratio = review.deep_work_sessions as f64 / review.session_count as f64;
+            if deep_ratio < 0.2 && review.session_count >= 4 {
+                insights.push(format!(
+                    "深度工作占比偏低（{:.0}%），建议集中时间段处理复杂任务，减少碎片化切换。",
+                    deep_ratio * 100.0
+                ));
+            }
+        }
+        if review.active_days <= 2 && review.total_duration > 7200 {
+            insights.push("工作集中在较少天数，注意避免过度集中导致疲劳。".to_string());
+        }
+    }
+    if let Some(intents) = intents {
+        let total: i64 = intents.summary.iter().map(|i| i.duration).sum();
+        if let Some(top) = intents.summary.first() {
+            if total > 0 {
+                let top_ratio = top.duration as f64 / total as f64;
+                if top_ratio > 0.7 {
+                    insights.push(format!(
+                        "「{}」占比 {:.0}%，时间投入高度集中，建议检查是否忽略了其他重要事项。",
+                        top.label, top_ratio * 100.0
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(sessions) = sessions {
+        let short = sessions.iter().filter(|s| s.duration < 300).count();
+        if short > sessions.len() / 2 && sessions.len() >= 4 {
+            insights.push(format!(
+                "超过一半的工作段不足 5 分钟（{}/{}），建议保护专注时间段。",
+                short, sessions.len()
+            ));
+        }
+    }
+    insights
 }
 
 fn build_assistant_cards(
