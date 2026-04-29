@@ -145,6 +145,7 @@
           max_image_width: 1280,
           screenshots_enabled: true,
           screenshot_display_mode: 'active_window',
+          screenshot_width_mode: 'auto',
         };
       }
       if (typeof config.storage.screenshots_enabled !== 'boolean') {
@@ -152,6 +153,9 @@
       }
       if (!config.storage.screenshot_display_mode) {
         config.storage.screenshot_display_mode = 'active_window';
+      }
+      if (!['auto', 'fixed'].includes(config.storage.screenshot_width_mode)) {
+        config.storage.screenshot_width_mode = 'auto';
       }
       if (!config.app_category_rules) config.app_category_rules = [];
       if (!config.privacy.app_rules) config.privacy.app_rules = [];

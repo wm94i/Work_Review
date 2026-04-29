@@ -386,6 +386,18 @@ pub enum ScreenshotDisplayMode {
     All,
 }
 
+/// 截图宽度模式
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+#[derive(Default)]
+pub enum ScreenshotWidthMode {
+    /// 自适应：根据屏幕分辨率动态计算（取屏幕宽度的 70%）
+    #[default]
+    Auto,
+    /// 固定值：使用 max_image_width 设定的值
+    Fixed,
+}
+
 /// 存储配置
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StorageConfig {
@@ -405,6 +417,9 @@ pub struct StorageConfig {
     /// 截图屏幕范围
     #[serde(default)]
     pub screenshot_display_mode: ScreenshotDisplayMode,
+    /// 截图宽度模式：auto 自适应屏幕，fixed 使用固定值
+    #[serde(default)]
+    pub screenshot_width_mode: ScreenshotWidthMode,
 }
 
 fn default_screenshots_enabled() -> bool {
@@ -421,6 +436,7 @@ impl Default for StorageConfig {
             max_image_width: 1280,        // 最大宽度1280px
             screenshots_enabled: true,
             screenshot_display_mode: ScreenshotDisplayMode::ActiveWindow,
+            screenshot_width_mode: ScreenshotWidthMode::Auto,
         }
     }
 }

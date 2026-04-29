@@ -1,4 +1,4 @@
-use crate::config::{ScreenshotDisplayMode, StorageConfig};
+use crate::config::{ScreenshotDisplayMode, ScreenshotWidthMode, StorageConfig};
 use crate::error::{AppError, Result};
 #[cfg(any(target_os = "linux", test))]
 use crate::linux_session::{LinuxDesktopEnvironment, LinuxDesktopSession};
@@ -163,6 +163,8 @@ pub struct ScreenshotConfig {
     pub jpeg_quality: u8,
     /// 截图范围模式
     pub display_mode: ScreenshotDisplayMode,
+    /// 截图宽度模式
+    pub width_mode: ScreenshotWidthMode,
 }
 
 impl Default for ScreenshotConfig {
@@ -171,6 +173,7 @@ impl Default for ScreenshotConfig {
             max_width: 1440,
             jpeg_quality: 70,
             display_mode: ScreenshotDisplayMode::ActiveWindow,
+            width_mode: ScreenshotWidthMode::Auto,
         }
     }
 }
@@ -181,6 +184,7 @@ impl From<&StorageConfig> for ScreenshotConfig {
             max_width: value.max_image_width.max(320),
             jpeg_quality: value.jpeg_quality.clamp(30, 95),
             display_mode: value.screenshot_display_mode,
+            width_mode: value.screenshot_width_mode,
         }
     }
 }
@@ -1450,6 +1454,55 @@ fn should_capture_all_displays(config: &ScreenshotConfig) -> bool {
     config.display_mode == ScreenshotDisplayMode::All
 }
 
+/// 检测主屏幕宽度（像素）
+/// 返回主屏幕的逻辑宽度，用于自适应截图分辨率
+#[cfg(target_os = "macos")]
+fn detect_primary_screen_width() -> Option<u32> {
+    use screenshots::Screen;
+    Screen::all().ok()?.first().map(|s| s.display_info.width)
+}
+
+#[cfg(target_os = "linux")]
+fn detect_primary_screen_width() -> Option<u32> {
+    use x11::xlib;
+    unsafe {
+        let display = xlib::XOpenDisplay(std::ptr::null());
+        if display.is_null() {
+            return None;
+        }
+        let screen = xlib::XDefaultScreen(display);
+        let width = xlib::XDisplayWidth(display, screen).max(1) as u32;
+        xlib::XCloseDisplay(display);
+        Some(width)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn detect_primary_screen_width() -> Option<u32> {
+    // Windows 上回退到固定值，后续可集成 EnumDisplayMonitors
+    None
+}
+
+impl ScreenshotConfig {
+    /// 根据模式计算实际使用的最大宽度
+    /// auto 模式：取屏幕宽度的 70%，保证 OCR 清晰度同时控制存储
+    /// fixed 模式：使用配置的 max_width
+    fn compute_max_width(&self) -> u32 {
+        match self.width_mode {
+            ScreenshotWidthMode::Auto => {
+                if let Some(screen_width) = detect_primary_screen_width() {
+                    let adaptive = (screen_width as f32 * 0.7) as u32;
+                    // 至少 1280，不超过原始 max_width 的 2 倍
+                    adaptive.clamp(1280, self.max_width.max(1280) * 2)
+                } else {
+                    self.max_width
+                }
+            }
+            ScreenshotWidthMode::Fixed => self.max_width,
+        }
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux", test))]
 fn prepare_archive_image_with_config(
     dynamic_image: DynamicImage,
@@ -1457,11 +1510,12 @@ fn prepare_archive_image_with_config(
 ) -> DynamicImage {
     let width = dynamic_image.width();
     let height = dynamic_image.height();
+    let max_width = config.compute_max_width();
 
-    if width > config.max_width {
-        let scale = config.max_width as f32 / width as f32;
+    if width > max_width {
+        let scale = max_width as f32 / width as f32;
         let new_height = (height as f32 * scale) as u32;
-        dynamic_image.resize(config.max_width, new_height, FilterType::Lanczos3)
+        dynamic_image.resize(max_width, new_height, FilterType::Lanczos3)
     } else {
         dynamic_image
     }

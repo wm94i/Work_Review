@@ -316,6 +316,79 @@
   </div>
 </div>
 
+<!-- 截图分辨率 -->
+<div class="settings-card mb-5" data-locale={currentLocale}>
+  <h3 class="settings-card-title">{t('settingsStorage.widthMode')}</h3>
+  <p class="settings-card-desc">{t('settingsStorage.widthModeHint')}</p>
+
+  <div class="settings-section">
+    <div class="settings-block">
+      <div class="flex gap-2">
+        <button
+          type="button"
+          on:click={() => {
+            config.storage.screenshot_width_mode = 'auto';
+            handleChange();
+          }}
+          class="flex-1 min-h-16 px-3 py-2.5 rounded-lg text-sm font-medium leading-none transition-all duration-150
+                 {config.storage.screenshot_width_mode === 'auto'
+                   ? 'settings-segment-active'
+                   : 'settings-segment-base'}"
+        >
+          <div class="flex h-full flex-col items-center justify-center gap-1 text-center">
+            <div class="leading-none">{t('settingsStorage.widthModeAuto')}</div>
+            <div class="text-[10px] leading-snug {config.storage.screenshot_width_mode === 'auto' ? 'text-white/70' : 'settings-subtle'}">
+              {t('settingsStorage.widthModeAutoDesc')}
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          on:click={() => {
+            config.storage.screenshot_width_mode = 'fixed';
+            handleChange();
+          }}
+          class="flex-1 min-h-16 px-3 py-2.5 rounded-lg text-sm font-medium leading-none transition-all duration-150
+                 {config.storage.screenshot_width_mode === 'fixed'
+                   ? 'settings-segment-active'
+                   : 'settings-segment-base'}"
+        >
+          <div class="flex h-full flex-col items-center justify-center gap-1 text-center">
+            <div class="leading-none">{t('settingsStorage.widthModeFixed')}</div>
+            <div class="text-[10px] leading-snug {config.storage.screenshot_width_mode === 'fixed' ? 'text-white/70' : 'settings-subtle'}">
+              {t('settingsStorage.widthModeFixedDesc')}
+            </div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    {#if config.storage.screenshot_width_mode === 'fixed'}
+      <div class="settings-block">
+        <div class="flex items-center justify-between">
+          <label for="max-image-width" class="settings-text">{t('settingsStorage.maxWidth')}</label>
+          <span class="settings-value">{config.storage.max_image_width}px</span>
+        </div>
+        <input
+          id="max-image-width"
+          type="range"
+          bind:value={config.storage.max_image_width}
+          on:change={handleChange}
+          min="640"
+          max="3840"
+          step="64"
+          class="range-input"
+        />
+        <div class="flex justify-between text-xs settings-subtle">
+          <span>640px</span>
+          <span>3840px</span>
+        </div>
+        <p class="settings-note">{t('settingsStorage.maxWidthHint')}</p>
+      </div>
+    {/if}
+  </div>
+</div>
+
 <!-- 日报导出 -->
 <div class="settings-card mb-5" data-locale={currentLocale}>
   <h3 class="settings-card-title">{t('settingsStorage.exportTitle')}</h3>
