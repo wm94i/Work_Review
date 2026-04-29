@@ -29,6 +29,9 @@ fn category_counts_toward_work_time(category: &str) -> bool {
     crate::categorize::normalize_category_key(category) != "entertainment"
 }
 
+const UNRESOLVED_BROWSER_DOMAIN_LABEL: &str = "未识别页面";
+const UNRESOLVED_BROWSER_URL_LABEL: &str = "未识别 URL";
+
 /// 活动记录
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Activity {
@@ -456,7 +459,10 @@ impl Database {
             [],
         )?;
 
-        let _ = conn.execute("ALTER TABLE daily_reports ADD COLUMN fallback_reason TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE daily_reports ADD COLUMN fallback_reason TEXT",
+            [],
+        );
         let _ = conn.execute(
             "ALTER TABLE daily_reports_localized ADD COLUMN fallback_reason TEXT",
             [],
@@ -922,12 +928,7 @@ impl Database {
                  ocr_text = ?2, 
                  timestamp = ?3
              WHERE id = ?4",
-            params![
-                duration_delta,
-                merged_ocr,
-                new_timestamp,
-                id
-            ],
+            params![duration_delta, merged_ocr, new_timestamp, id],
         )?;
 
         Ok(())
@@ -1203,8 +1204,7 @@ impl Database {
             std::collections::HashMap<String, i64>,
         > = std::collections::HashMap::new();
 
-        let activity_rows: Vec<_> = activity_rows
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let activity_rows: Vec<_> = activity_rows.collect::<std::result::Result<Vec<_>, _>>()?;
         drop(stmt);
 
         for (
@@ -1243,9 +1243,7 @@ impl Database {
                 let mut t = overlap_start;
                 while t < overlap_end {
                     let hour = chrono::DateTime::from_timestamp(t, 0)
-                        .map(|dt| {
-                            dt.with_timezone(&chrono::Local).format("%H").to_string()
-                        })
+                        .map(|dt| dt.with_timezone(&chrono::Local).format("%H").to_string())
                         .unwrap_or_default();
                     let bucket_end = (t / 3600 + 1) * 3600;
                     let range_end = overlap_end.min(bucket_end);
@@ -1259,7 +1257,11 @@ impl Database {
             }
 
             let display_name = crate::categorize::normalize_display_app_name(&app_name);
-            let entry = app_usage_map.entry(display_name.clone()).or_insert((0, 0, executable_path.clone()));
+            let entry = app_usage_map.entry(display_name.clone()).or_insert((
+                0,
+                0,
+                executable_path.clone(),
+            ));
             entry.0 += day_duration;
             entry.1 += 1;
             if entry.2.is_none() && executable_path.is_some() {
@@ -1271,7 +1273,8 @@ impl Database {
 
             if crate::categorize::is_browser_app(&app_name) {
                 browser_duration += day_duration;
-                let normalized_browser_name = crate::categorize::normalize_display_app_name(&app_name);
+                let normalized_browser_name =
+                    crate::categorize::normalize_display_app_name(&app_name);
                 *browser_duration_map
                     .entry(normalized_browser_name.clone())
                     .or_insert(0) += day_duration;
@@ -1291,10 +1294,15 @@ impl Database {
                     }
                 }
 
-                let page_hint = browser_url
+                let normalized_browser_url = browser_url
                     .as_deref()
-                    .map(|u| normalize_url(u))
-                    .filter(|url| !url.is_empty())
+                    .map(normalize_url)
+                    .filter(|url| !url.is_empty());
+
+                let page_hint = normalized_browser_url
+                    .as_deref()
+                    .filter(|url| !crate::categorize::is_merged_domain(url))
+                    .map(|url| url.to_string())
                     .or_else(|| crate::categorize::infer_browser_page_hint(&window_title))
                     .or_else(|| {
                         ocr_text
@@ -1302,13 +1310,20 @@ impl Database {
                             .and_then(crate::categorize::infer_browser_page_hint_from_text)
                     });
 
-                let Some(page_hint) = page_hint else {
-                    continue;
+                let (domain, page_hint) = match page_hint {
+                    Some(page_hint) => (
+                        crate::categorize::browser_page_domain_label(&page_hint),
+                        page_hint,
+                    ),
+                    None => (
+                        UNRESOLVED_BROWSER_DOMAIN_LABEL.to_string(),
+                        normalized_browser_url
+                            .unwrap_or_else(|| UNRESOLVED_BROWSER_URL_LABEL.to_string()),
+                    ),
                 };
 
-                let domain = crate::categorize::browser_page_domain_label(&page_hint);
                 let domain_map = browser_map.entry(normalized_browser_name).or_default();
-                let page_map = domain_map.entry(domain).or_default();
+                let page_map = domain_map.entry(domain.clone()).or_default();
                 *page_map.entry(page_hint.clone()).or_insert(0) += day_duration;
                 *url_duration_map.entry(page_hint).or_insert(0) += day_duration;
 
@@ -1318,9 +1333,7 @@ impl Database {
                     .filter(|value| !value.is_empty())
                 {
                     *domain_semantic_map
-                        .entry(crate::categorize::browser_page_domain_label(
-                            browser_url.as_deref().unwrap_or_default(),
-                        ))
+                        .entry(domain.clone())
                         .or_default()
                         .entry(semantic_cat.to_string())
                         .or_insert(0) += day_duration;
@@ -1356,8 +1369,12 @@ impl Database {
             })
             .collect();
 
-        let pick_semantic = |semantic_map: &std::collections::HashMap<String, std::collections::HashMap<String, i64>>,
-                             domain: &str| -> Option<String> {
+        let pick_semantic = |semantic_map: &std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, i64>,
+        >,
+                             domain: &str|
+         -> Option<String> {
             semantic_map.get(domain).and_then(|candidates| {
                 candidates
                     .iter()
@@ -1416,6 +1433,15 @@ impl Database {
 
         let mut url_usage_rows: Vec<(String, i64)> = url_duration_map.into_iter().collect();
         url_usage_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+        // 先从全部 URL 聚合域名总时长，再截断 URL 列表
+        let mut domain_total_map: std::collections::HashMap<String, i64> =
+            std::collections::HashMap::new();
+        for (url, duration) in &url_usage_rows {
+            let domain = crate::categorize::browser_page_domain_label(url);
+            *domain_total_map.entry(domain).or_insert(0) += duration;
+        }
+
         url_usage_rows.truncate(10);
         let url_usage: Vec<UrlUsage> = url_usage_rows
             .into_iter()
@@ -1426,27 +1452,27 @@ impl Database {
             })
             .collect();
 
-        let mut domain_map_compat: std::collections::HashMap<String, (i64, Vec<UrlDetail>)> =
+        // 从截断后的 URL 列表构建 URL 明细
+        let mut domain_url_detail_map: std::collections::HashMap<String, Vec<UrlDetail>> =
             std::collections::HashMap::new();
         for u in &url_usage {
-            let entry = domain_map_compat
+            domain_url_detail_map
                 .entry(u.domain.clone())
-                .or_insert((0, Vec::new()));
-            entry.0 += u.duration;
-            entry.1.push(UrlDetail {
-                url: u.url.clone(),
-                duration: u.duration,
-            });
+                .or_default()
+                .push(UrlDetail {
+                    url: u.url.clone(),
+                    duration: u.duration,
+                });
         }
-        let mut domain_usage: Vec<DomainUsage> = domain_map_compat
+        let mut domain_usage: Vec<DomainUsage> = domain_total_map
             .into_iter()
-            .map(|(domain, (duration, urls))| {
+            .map(|(domain, duration)| {
                 let semantic_category = pick_semantic(&domain_semantic_map, &domain);
                 DomainUsage {
-                    domain,
+                    domain: domain.clone(),
                     duration,
                     semantic_category,
-                    urls,
+                    urls: domain_url_detail_map.remove(&domain).unwrap_or_default(),
                 }
             })
             .collect();
@@ -2089,15 +2115,21 @@ impl Database {
     /// FTS5 全文检索：将用户查询转为 FTS5 兼容的 OR 查询
     /// 处理中文分词：按空格/标点拆分，每个 token 用 OR 连接
     fn build_fts_query(query: &str) -> String {
+        let is_punct = |c: char| -> bool {
+            c.is_ascii_punctuation()
+                || "，。、？！：；（）【】《》".contains(c)
+                || c == '\u{201C}' || c == '\u{201D}' // ""
+                || c == '\u{2018}' || c == '\u{2019}' // ''
+        };
+
         let tokens: Vec<String> = query
             .split_whitespace()
-            .map(|t| t.trim().trim_matches(|c: char| c.is_ascii_punctuation() || c == '，' || c == '。' || c == '、' || c == '？' || c == '！'))
+            .map(|t| t.trim().trim_matches(is_punct))
             .filter(|t| t.len() >= 1 && !t.is_empty())
             .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
             .collect();
 
         if tokens.is_empty() {
-            // 回退：用原始查询做前缀匹配
             return format!("\"{}\"", query.trim().replace('"', "\"\""));
         }
 
@@ -2111,7 +2143,18 @@ impl Database {
         start_ts: Option<i64>,
         end_ts: Option<i64>,
         limit: i64,
-    ) -> Result<Vec<(i64, i64, String, String, Option<String>, Option<String>, i64, i64)>> {
+    ) -> Result<
+        Vec<(
+            i64,
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+            i64,
+        )>,
+    > {
         let conn = self.conn.lock().map_err(|e| {
             AppError::Database(rusqlite::Error::InvalidParameterName(e.to_string()))
         })?;
@@ -2256,8 +2299,11 @@ impl Database {
         let mut items = Vec::new();
 
         // === FTS5 检索活动记录 ===
-        if let Ok(fts_rows) = self.search_activities_fts(&fts_query, start_ts, end_ts, fetch_limit) {
-            for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration, _rank) in fts_rows {
+        if let Ok(fts_rows) = self.search_activities_fts(&fts_query, start_ts, end_ts, fetch_limit)
+        {
+            for (id, timestamp, app_name, window_title, ocr_text, browser_url, duration, _rank) in
+                fts_rows
+            {
                 // FTS rank 是负数，越小越好；转换为正数分数
                 let score = 200i64; // FTS 匹配即高分
 
@@ -2293,8 +2339,14 @@ impl Database {
         }
 
         // === FTS5 检索小时摘要 ===
-        if let Ok(fts_rows) = self.search_hourly_fts(&fts_query, report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit) {
-            for (id, date, hour, summary, main_apps, total_duration, created_at, _rank) in fts_rows {
+        if let Ok(fts_rows) = self.search_hourly_fts(
+            &fts_query,
+            report_date_from.as_deref(),
+            report_date_to.as_deref(),
+            fetch_limit,
+        ) {
+            for (id, date, hour, summary, main_apps, total_duration, created_at, _rank) in fts_rows
+            {
                 items.push(MemorySearchItem {
                     source_type: "hourly_summary".to_string(),
                     source_id: Some(id),
@@ -2311,7 +2363,12 @@ impl Database {
         }
 
         // === FTS5 检索日报 ===
-        if let Ok(fts_rows) = self.search_reports_fts(&fts_query, report_date_from.as_deref(), report_date_to.as_deref(), fetch_limit) {
+        if let Ok(fts_rows) = self.search_reports_fts(
+            &fts_query,
+            report_date_from.as_deref(),
+            report_date_to.as_deref(),
+            fetch_limit,
+        ) {
             for (date, content, ai_mode, model_name, created_at, _rank) in fts_rows {
                 items.push(MemorySearchItem {
                     source_type: "daily_report".to_string(),
@@ -2330,7 +2387,14 @@ impl Database {
 
         // === FTS 无结果时回退到关键词匹配 ===
         if items.is_empty() {
-            return self.search_memory_fallback(trimmed_query, start_ts, end_ts, &report_date_from, &report_date_to, limit);
+            return self.search_memory_fallback(
+                trimmed_query,
+                start_ts,
+                end_ts,
+                &report_date_from,
+                &report_date_to,
+                limit,
+            );
         }
 
         items.sort_by(|a, b| {
@@ -2371,7 +2435,15 @@ impl Database {
              LIMIT ?3",
         )?;
 
-        let rows: Vec<(i64, i64, String, String, Option<String>, Option<String>, i64)> = stmt
+        let rows: Vec<(
+            i64,
+            i64,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            i64,
+        )> = stmt
             .query_map(params![start_ts, end_ts, fetch_limit], |row| {
                 Ok((
                     row.get::<_, i64>(0)?,
@@ -2430,10 +2502,106 @@ impl Database {
             });
         }
 
+        // 回退：hourly_summaries
+        let mut hourly_stmt = conn.prepare(
+            "SELECT id, date, hour, summary, main_apps, total_duration, created_at
+             FROM hourly_summaries
+             WHERE (?1 IS NULL OR date >= ?1)
+               AND (?2 IS NULL OR date <= ?2)
+             ORDER BY created_at DESC
+             LIMIT ?3",
+        )?;
+
+        let hourly_rows: Vec<(i64, String, i32, String, String, i64, i64)> = hourly_stmt
+            .query_map(
+                params![date_from.as_deref(), date_to.as_deref(), fetch_limit],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i32>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        for (id, date, hour, summary, main_apps, total_duration, created_at) in hourly_rows {
+            let score =
+                score_memory_match(query, &[&summary, &main_apps, &date, &hour.to_string()]);
+            if score <= 0 {
+                continue;
+            }
+
+            items.push(MemorySearchItem {
+                source_type: "hourly_summary".to_string(),
+                source_id: Some(id),
+                date: date.clone(),
+                timestamp: created_at,
+                title: format!("{date} {:02}:00 小时摘要", hour),
+                excerpt: pick_excerpt(&[summary.clone(), main_apps.clone()]),
+                app_name: None,
+                browser_url: None,
+                duration: Some(total_duration),
+                score,
+            });
+        }
+
+        // 回退：daily_reports_localized
+        let mut report_stmt = conn.prepare(
+            "SELECT date, content, ai_mode, model_name, created_at
+             FROM daily_reports_localized
+             WHERE (?1 IS NULL OR date >= ?1)
+               AND (?2 IS NULL OR date <= ?2)
+             ORDER BY created_at DESC
+             LIMIT ?3",
+        )?;
+
+        let report_rows: Vec<(String, String, String, Option<String>, i64)> = report_stmt
+            .query_map(
+                params![date_from.as_deref(), date_to.as_deref(), fetch_limit],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                },
+            )?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        for (date, content, _ai_mode, _model_name, created_at) in report_rows {
+            let score = score_memory_match(query, &[&date, &content]);
+            if score <= 0 {
+                continue;
+            }
+
+            items.push(MemorySearchItem {
+                source_type: "daily_report".to_string(),
+                source_id: None,
+                date: date.clone(),
+                timestamp: created_at,
+                title: format!("{date} 日报"),
+                excerpt: pick_excerpt(&[content]),
+                app_name: None,
+                browser_url: None,
+                duration: None,
+                score,
+            });
+        }
+
         items.sort_by(|a, b| {
             b.score
                 .cmp(&a.score)
                 .then_with(|| b.timestamp.cmp(&a.timestamp))
+                .then_with(|| a.title.cmp(&b.title))
         });
         items.truncate(limit);
 
@@ -2716,6 +2884,74 @@ mod tests {
                     bucket.duration == 0
                 }
             }));
+
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn 浏览器网站统计应将无法识别页面归入未识别分组() {
+        let db_path = temp_db_path("daily-stats-browser-identified-pages-only");
+        let db = Database::new(&db_path).expect("创建测试数据库失败");
+        let date = "2026-03-27";
+
+        let records = vec![
+            Activity {
+                id: None,
+                timestamp: local_ts(date, 10, 30),
+                app_name: "Chrome".to_string(),
+                window_title: "Linux Do".to_string(),
+                screenshot_path: "chrome-a.jpg".to_string(),
+                ocr_text: None,
+                category: "browser".to_string(),
+                duration: 30 * 60,
+                browser_url: Some("linux.dolatest".to_string()),
+                executable_path: None,
+                semantic_category: Some("资料阅读".to_string()),
+                semantic_confidence: Some(80),
+            },
+            Activity {
+                id: None,
+                timestamp: local_ts(date, 10, 40),
+                app_name: "Chrome".to_string(),
+                window_title: "Docs".to_string(),
+                screenshot_path: "chrome-b.jpg".to_string(),
+                ocr_text: None,
+                category: "browser".to_string(),
+                duration: 5 * 60,
+                browser_url: Some("https://example.com/docs".to_string()),
+                executable_path: None,
+                semantic_category: Some("资料阅读".to_string()),
+                semantic_confidence: Some(80),
+            },
+        ];
+
+        for activity in &records {
+            db.insert_activity(activity).expect("插入测试数据失败");
+        }
+
+        let stats = db
+            .get_daily_stats_with_work_time(date, 9, 18, 0, 0)
+            .expect("读取今日统计失败");
+
+        // 活动总时长仍统计全部浏览器活动。
+        assert_eq!(stats.total_duration, 35 * 60);
+
+        // 网站统计应包含未识别页面，保证总时长与页面明细可对齐。
+        assert_eq!(stats.browser_duration, 35 * 60);
+        assert_eq!(stats.browser_usage.len(), 1);
+        assert_eq!(stats.browser_usage[0].browser_name, "Google Chrome");
+        assert_eq!(stats.browser_usage[0].duration, 35 * 60);
+        assert_eq!(stats.browser_usage[0].domains.len(), 2);
+        assert_eq!(stats.browser_usage[0].domains[0].domain, "未识别页面");
+        assert_eq!(stats.browser_usage[0].domains[0].duration, 30 * 60);
+        assert_eq!(stats.browser_usage[0].domains[1].domain, "example.com");
+        assert_eq!(stats.browser_usage[0].domains[1].duration, 5 * 60);
+        assert_eq!(stats.browser_usage[0].domains[0].urls[0].url, "linux.dolatest");
+        assert!(stats
+            .browser_usage
+            .iter()
+            .flat_map(|browser| browser.domains.iter())
+            .all(|domain| domain.domain != "linux.dolatest"));
 
         let _ = std::fs::remove_file(db_path);
     }
