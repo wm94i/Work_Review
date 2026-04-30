@@ -235,7 +235,12 @@
     };
   }
 
-  $: focusBubble = buildFocusBubblePayload(focusSession);
+  $: focusBubble = (() => {
+    // focusNowMs must appear in the reactive expression so Svelte
+    // re-evaluates every second when the timer ticks.
+    void focusNowMs;
+    return buildFocusBubblePayload(focusSession);
+  })();
   $: bubble = localizeBubblePayload(focusBubble || bubbleSource, currentLocale);
   $: followupCopy = buildFollowupCopy(followup);
   $: syncAvatarExpansion(followup != null);
