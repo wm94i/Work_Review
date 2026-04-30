@@ -577,6 +577,32 @@ fn parse_temporal_range(question: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
+/// Parse a single date from user input for bot commands (e.g. `/report 昨天`).
+/// Returns the resolved date string in YYYY-MM-DD format, or the input unchanged.
+pub fn resolve_single_date(input: Option<&str>) -> String {
+    use chrono::Datelike;
+
+    let s = input.unwrap_or("today").to_lowercase();
+    let today = chrono::Local::now().date_naive();
+    let fmt = |d: chrono::NaiveDate| d.format("%Y-%m-%d").to_string();
+
+    match s.as_str() {
+        "today" | "今天" | "今日" => fmt(today),
+        "yesterday" | "昨天" | "昨日" => fmt(today - chrono::Duration::days(1)),
+        "前天" => fmt(today - chrono::Duration::days(2)),
+        "本周" | "这周" => {
+            let wd = today.weekday().num_days_from_monday() as i64;
+            fmt(today - chrono::Duration::days(wd))
+        }
+        "上周" => {
+            let wd = today.weekday().num_days_from_monday() as i64;
+            let this_monday = today - chrono::Duration::days(wd);
+            fmt(this_monday - chrono::Duration::days(7))
+        }
+        _ => s,
+    }
+}
+
 fn format_memory_references(references: &[MemorySearchItem]) -> String {
     references
         .iter()

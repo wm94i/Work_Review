@@ -187,17 +187,6 @@ async fn api_get(client: &Client, url: &str) -> Option<serde_json::Value> {
         .ok()
 }
 
-fn resolve_date(input: Option<&str>) -> String {
-    let s = input.unwrap_or("today").to_lowercase();
-    match s.as_str() {
-        "today" | "今天" => chrono::Local::now().format("%Y-%m-%d").to_string(),
-        "yesterday" | "昨天" => (chrono::Local::now() - chrono::Duration::days(1))
-            .format("%Y-%m-%d")
-            .to_string(),
-        _ => s,
-    }
-}
-
 fn truncate(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
@@ -406,7 +395,7 @@ async fn handle_cmd(client: &Client, devices: &[DeviceEndpoint], text: &str) -> 
             }
         }
         "日报" | "report" => {
-            let date = resolve_date(parts.get(1).copied());
+            let date = crate::commands::resolve_single_date(parts.get(1).copied());
             let device = match find_device(devices, parts.get(2).copied().unwrap_or(""))
                 .or_else(|| devices.first())
             {
@@ -437,7 +426,7 @@ async fn handle_cmd(client: &Client, devices: &[DeviceEndpoint], text: &str) -> 
             }
         }
         "生成日报" | "generate" => {
-            let date = resolve_date(parts.get(1).copied());
+            let date = crate::commands::resolve_single_date(parts.get(1).copied());
             let device = match find_device(devices, parts.get(2).copied().unwrap_or(""))
                 .or_else(|| devices.first())
             {

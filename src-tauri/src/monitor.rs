@@ -231,14 +231,12 @@ pub fn clean_browser_window_title(title: &str, app_name: &str) -> String {
     }
 
     let mut clean_segments: Vec<&str> = Vec::new();
-    let mut found_browser_suffix = false;
 
     for seg in &segments {
         let seg_trimmed = seg.trim();
 
         // 跳过浏览器名本身（如 "Google Chrome"）
         if !browser_suffix.is_empty() && seg_trimmed == browser_suffix {
-            found_browser_suffix = true;
             continue;
         }
 

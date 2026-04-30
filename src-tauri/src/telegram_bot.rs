@@ -530,7 +530,7 @@ async fn handle_cmd(client: &Client, devices: &[DeviceEndpoint], text: &str) -> 
             }
         }
         "/report" => {
-            let date = resolve_date(parts.get(1).copied());
+            let date = crate::commands::resolve_single_date(parts.get(1).copied());
             let device = find_device(devices, parts.get(2).copied().unwrap_or(""))
                 .or_else(|| devices.first());
             let device = match device {
@@ -568,7 +568,7 @@ async fn handle_cmd(client: &Client, devices: &[DeviceEndpoint], text: &str) -> 
             }
         }
         "/generate" => {
-            let date = resolve_date(parts.get(1).copied());
+            let date = crate::commands::resolve_single_date(parts.get(1).copied());
             let device = find_device(devices, parts.get(2).copied().unwrap_or(""))
                 .or_else(|| devices.first());
             let device = match device {
@@ -690,17 +690,6 @@ async fn send_chat_action(client: &Client, bot_token: &str, chat_id: i64, action
         Ok(r) if r.status().is_success() => {}
         Ok(r) => log::warn!("Telegram sendChatAction 失败 (HTTP {})", r.status()),
         Err(e) => log::warn!("Telegram sendChatAction 错误: {e}"),
-    }
-}
-
-fn resolve_date(input: Option<&str>) -> String {
-    let s = input.unwrap_or("today").to_lowercase();
-    match s.as_str() {
-        "today" | "今天" => chrono::Local::now().format("%Y-%m-%d").to_string(),
-        "yesterday" | "昨天" => (chrono::Local::now() - chrono::Duration::days(1))
-            .format("%Y-%m-%d")
-            .to_string(),
-        _ => s,
     }
 }
 
