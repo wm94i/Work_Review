@@ -2094,7 +2094,10 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
                 if is_merge {
                     // === 合并路径：不保存截图，只做 OCR ===
                     let latest = latest_activity.unwrap();
-                    let latest_id = latest.id.unwrap();
+                    let latest_id = match latest.id {
+                        Some(id) => id,
+                        None => { log::error!("合并活动记录缺少 id，跳过"); continue; }
+                    };
                     let previous_screenshot_path = latest.screenshot_path.clone();
 
                     // 截屏到内存，保存为临时文件供 OCR 使用
@@ -2988,7 +2991,7 @@ async fn main() {
                 log::warn!("初始化开机自启功能失败: {e}");
             }
 
-            let window = app.get_webview_window("main").unwrap();
+            let window = app.get_webview_window("main").expect("main window should exist at setup");
             configure_main_window(&window);
             let launch_args = std::env::args().collect::<Vec<_>>();
             // 获取 Arc<Mutex<AppState>> 并克隆以便在异步任务中使用

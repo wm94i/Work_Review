@@ -2,8 +2,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
-use work_review_core::database::Database;
 use work_review_core::config::AppConfig;
+use work_review_core::database::Database;
 use work_review_core::policy::{CallSource, Permission, PolicyDecision, PolicyEnforcer};
 use work_review_skills_engine::engine::SkillEngine;
 use work_review_skills_engine::executor::{ExecutionContext, OutputContentType};
@@ -19,21 +19,22 @@ struct AppState {
 fn main() {
     env_logger::init();
 
-    let db_path = std::env::var("WORK_REVIEW_DB_PATH")
-        .unwrap_or_else(|_| {
-            let data_dir = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("work-review");
-            data_dir.join("work_review.db").to_string_lossy().to_string()
-        });
+    let db_path = std::env::var("WORK_REVIEW_DB_PATH").unwrap_or_else(|_| {
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("work-review");
+        data_dir
+            .join("work_review.db")
+            .to_string_lossy()
+            .to_string()
+    });
 
-    let config_path = std::env::var("WORK_REVIEW_CONFIG_PATH")
-        .unwrap_or_else(|_| {
-            let data_dir = dirs::data_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join("work-review");
-            data_dir.join("config.json").to_string_lossy().to_string()
-        });
+    let config_path = std::env::var("WORK_REVIEW_CONFIG_PATH").unwrap_or_else(|_| {
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("work-review");
+        data_dir.join("config.json").to_string_lossy().to_string()
+    });
 
     let db = match Database::new(std::path::Path::new(&db_path)) {
         Ok(db) => db,
@@ -43,31 +44,39 @@ fn main() {
         }
     };
 
-    let config = AppConfig::load(std::path::Path::new(&config_path))
-        .unwrap_or_default();
+    let config = AppConfig::load(std::path::Path::new(&config_path)).unwrap_or_default();
 
     let mut policy = PolicyEnforcer::new(&config);
     let mut skills = SkillEngine::new();
 
     // 注册所有内置技能的权限到策略层
     for pkg in skills.list_skills() {
-        let perms: Vec<Permission> = pkg.required_permissions.iter().filter_map(|p| {
-            Some(match p {
-                SkillPermission::ReadActivities => Permission::ReadActivities,
-                SkillPermission::ReadReports => Permission::ReadReports,
-                SkillPermission::ReadStats => Permission::ReadStats,
-                SkillPermission::ReadSessions => Permission::ReadSessions,
-                SkillPermission::ReadConfig => Permission::ReadConfig,
-                SkillPermission::WriteReport => Permission::WriteReport,
-                SkillPermission::WriteConfig => Permission::WriteConfig,
-                SkillPermission::ExecuteAi => Permission::ExecuteAi,
-                SkillPermission::ReadDeviceStatus => Permission::ReadDeviceStatus,
+        let perms: Vec<Permission> = pkg
+            .required_permissions
+            .iter()
+            .filter_map(|p| {
+                Some(match p {
+                    SkillPermission::ReadActivities => Permission::ReadActivities,
+                    SkillPermission::ReadReports => Permission::ReadReports,
+                    SkillPermission::ReadStats => Permission::ReadStats,
+                    SkillPermission::ReadSessions => Permission::ReadSessions,
+                    SkillPermission::ReadConfig => Permission::ReadConfig,
+                    SkillPermission::WriteReport => Permission::WriteReport,
+                    SkillPermission::WriteConfig => Permission::WriteConfig,
+                    SkillPermission::ExecuteAi => Permission::ExecuteAi,
+                    SkillPermission::ReadDeviceStatus => Permission::ReadDeviceStatus,
+                })
             })
-        }).collect();
+            .collect();
         policy.register_skill_permissions(&pkg.id, perms);
     }
 
-    let state = Arc::new(Mutex::new(AppState { db, config, policy, skills }));
+    let state = Arc::new(Mutex::new(AppState {
+        db,
+        config,
+        policy,
+        skills,
+    }));
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -283,7 +292,7 @@ fn with_policy_check<F>(
 where
     F: FnOnce(&mut AppState) -> Value,
 {
-    let mut s = state.lock().unwrap();
+    let mut s = state.lock().unwrap_or_else(|e| e.into_inner());
     let source = CallSource::McpTool {
         tool_name: tool_name.to_string(),
         client_id: None,
@@ -357,7 +366,8 @@ fn handle_tool_call(name: &str, args: &Value, state: &Arc<Mutex<AppState>>) -> V
             let date = args["date"].as_str().unwrap_or("");
             match s.db.get_timeline(date, None, None) {
                 Ok(activities) => {
-                    let sessions = work_review_core::work_intelligence::build_work_sessions(&activities);
+                    let sessions =
+                        work_review_core::work_intelligence::build_work_sessions(&activities);
                     json!({
                         "content": [{ "type": "text", "text": serde_json::to_string_pretty(&sessions).unwrap_or_default() }]
                     })
@@ -448,17 +458,22 @@ fn handle_tool_call(name: &str, args: &Value, state: &Arc<Mutex<AppState>>) -> V
             })
         }),
         "list_skills" => with_policy_check(state, name, Permission::ExecuteSkill, |s| {
-            let skills: Vec<Value> = s.skills.list_skills().iter().map(|pkg| {
-                json!({
-                    "id": pkg.id,
-                    "name": pkg.name,
-                    "description": pkg.description,
-                    "category": format!("{:?}", pkg.category),
-                    "enabled": pkg.enabled,
-                    "version": pkg.version,
-                    "adaptive_enabled": pkg.adaptive.enabled,
+            let skills: Vec<Value> = s
+                .skills
+                .list_skills()
+                .iter()
+                .map(|pkg| {
+                    json!({
+                        "id": pkg.id,
+                        "name": pkg.name,
+                        "description": pkg.description,
+                        "category": format!("{:?}", pkg.category),
+                        "enabled": pkg.enabled,
+                        "version": pkg.version,
+                        "adaptive_enabled": pkg.adaptive.enabled,
+                    })
                 })
-            }).collect();
+                .collect();
             json!({
                 "content": [{ "type": "text", "text": serde_json::to_string_pretty(&skills).unwrap_or_default() }]
             })
@@ -473,16 +488,19 @@ fn handle_tool_call(name: &str, args: &Value, state: &Arc<Mutex<AppState>>) -> V
             } else {
                 s.skills.get_all_stats()
             };
-            let stats_json: Vec<Value> = stats.iter().map(|(id, stat)| {
-                json!({
-                    "skill_id": id,
-                    "total_executions": stat.total_executions,
-                    "success_count": stat.success_count,
-                    "failure_count": stat.failure_count,
-                    "avg_duration_ms": stat.avg_duration_ms,
-                    "last_executed_at": stat.last_executed_at,
+            let stats_json: Vec<Value> = stats
+                .iter()
+                .map(|(id, stat)| {
+                    json!({
+                        "skill_id": id,
+                        "total_executions": stat.total_executions,
+                        "success_count": stat.success_count,
+                        "failure_count": stat.failure_count,
+                        "avg_duration_ms": stat.avg_duration_ms,
+                        "last_executed_at": stat.last_executed_at,
+                    })
                 })
-            }).collect();
+                .collect();
             json!({
                 "content": [{ "type": "text", "text": serde_json::to_string_pretty(&stats_json).unwrap_or_default() }]
             })
@@ -500,29 +518,41 @@ fn resources_list() -> Vec<Value> {
 }
 
 fn handle_resource_read(uri: &str, state: &Arc<Mutex<AppState>>) -> Value {
-    let s = state.lock().unwrap();
+    let s = state.lock().unwrap_or_else(|e| e.into_inner());
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     match uri {
         "timeline/today" => match s.db.get_timeline(&today, Some(50), None) {
-            Ok(activities) => resource_result(uri, &serde_json::to_string_pretty(&activities).unwrap_or_default()),
+            Ok(activities) => resource_result(
+                uri,
+                &serde_json::to_string_pretty(&activities).unwrap_or_default(),
+            ),
             Err(e) => resource_result(uri, &format!("Error: {e}")),
         },
         "sessions/current" => match s.db.get_timeline(&today, None, None) {
             Ok(activities) => {
-                let sessions = work_review_core::work_intelligence::build_work_sessions(&activities);
-                resource_result(uri, &serde_json::to_string_pretty(&sessions).unwrap_or_default())
+                let sessions =
+                    work_review_core::work_intelligence::build_work_sessions(&activities);
+                resource_result(
+                    uri,
+                    &serde_json::to_string_pretty(&sessions).unwrap_or_default(),
+                )
             }
             Err(e) => resource_result(uri, &format!("Error: {e}")),
         },
         "stats/weekly" => {
             let mut weekly = Vec::new();
             for i in 0..7 {
-                let date = (chrono::Local::now() - chrono::Duration::days(i)).format("%Y-%m-%d").to_string();
+                let date = (chrono::Local::now() - chrono::Duration::days(i))
+                    .format("%Y-%m-%d")
+                    .to_string();
                 if let Ok(stats) = s.db.get_daily_stats(&date) {
                     weekly.push(json!({ "date": date, "total_duration": stats.total_duration, "screenshot_count": stats.screenshot_count }));
                 }
             }
-            resource_result(uri, &serde_json::to_string_pretty(&weekly).unwrap_or_default())
+            resource_result(
+                uri,
+                &serde_json::to_string_pretty(&weekly).unwrap_or_default(),
+            )
         }
         _ => resource_result(uri, &format!("Unknown resource: {uri}")),
     }
