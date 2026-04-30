@@ -308,40 +308,6 @@ export const AVATAR_PRESET_OPTIONS = [
       lastMouseInputAtMs: 0,
     },
   },
-  {
-    id: 'keyboard-focus',
-    titleKey: 'settingsAppearance.avatarPresetKeyboardFocusTitle',
-    descriptionKey: 'settingsAppearance.avatarPresetKeyboardFocusDesc',
-    previewMotionBeat: 22,
-    previewInputActivity: {
-      keyboardActive: true,
-      mouseActive: false,
-      keyboardGroup: 'key-q',
-      keyboardVisualKey: 'KeyQ',
-      mouseGroup: null,
-      cursorRatioX: 0.5,
-      cursorRatioY: 0.5,
-      lastKeyboardInputAtMs: 0,
-      lastMouseInputAtMs: 0,
-    },
-  },
-  {
-    id: 'minimal-office',
-    titleKey: 'settingsAppearance.avatarPresetMinimalOfficeTitle',
-    descriptionKey: 'settingsAppearance.avatarPresetMinimalOfficeDesc',
-    previewMotionBeat: 15,
-    previewInputActivity: {
-      keyboardActive: true,
-      mouseActive: true,
-      keyboardGroup: 'key-q',
-      keyboardVisualKey: 'KeyQ',
-      mouseGroup: 'mouse-left',
-      cursorRatioX: 0.36,
-      cursorRatioY: 0.62,
-      lastKeyboardInputAtMs: 0,
-      lastMouseInputAtMs: 0,
-    },
-  },
 ];
 
 const AVAILABLE_AVATAR_PRESET_IDS = new Set(

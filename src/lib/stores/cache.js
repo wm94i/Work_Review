@@ -28,6 +28,8 @@ function createCache() {
     reports: {},
     // 小时摘要（按日期缓存）
     hourlySummaries: {},
+    // 日报生成中标记
+    reportGenerating: false,
     // 配置
     config: null,
   });
@@ -92,6 +94,9 @@ function createCache() {
       return { ...c, reports };
     }),
 
+    // 日报生成状态（跨页面持久）
+    setReportGenerating: (generating) => update(c => ({ ...c, reportGenerating: generating })),
+
     // 设置配置
     setConfig: (data) => update(c => ({ ...c, config: data })),
 
@@ -124,6 +129,7 @@ function createCache() {
       timeline: {},
       reports: {},
       hourlySummaries: {},
+      reportGenerating: false,
       config: null,
     }),
 

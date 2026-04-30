@@ -11,15 +11,16 @@
   });
 
   let input = '';
-  let sending = false;
   let error = null;
   let chatBody;
   let composer;
   let bottomAnchor;
-  let messages = [];
+  let assistantState = {};
   let unsubscribeAssistant = () => {};
   let destroyed = false;
   let stickToBottom = true;
+  $: sending = assistantState.sending ?? false;
+  $: messages = assistantState.messages ?? [];
   $: currentLocale = $locale;
   $: starterPrompts = tm('ask.starterPrompts') || [];
 
@@ -104,12 +105,12 @@
 
   onMount(async () => {
     unsubscribeAssistant = assistantStore.subscribe((state) => {
+      assistantState = state;
       const nextMessages = state.messages || [];
       const previousCount = messages.length;
       const messageCountIncreased = nextMessages.length > previousCount;
       const latestMessage = nextMessages[nextMessages.length - 1];
 
-      messages = nextMessages;
       selectedModelId = state.selectedModelId || BASIC_ASSISTANT_MODEL_ID;
 
       if (!nextMessages.length) {
@@ -336,7 +337,7 @@
     if (!trimmed || sending) return;
 
     error = null;
-    sending = true;
+    assistantStore.setSending(true);
 
     const history = buildHistoryPayload();
 
@@ -378,8 +379,8 @@
         error = e.toString();
       }
     } finally {
+      assistantStore.setSending(false);
       if (destroyed) return;
-      sending = false;
       await tick();
       resizeComposer();
       composer?.focus();

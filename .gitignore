@@ -32,6 +32,11 @@ data/
 *.db-journal
 screenshots/
 
+# Live2D SDK (only keep the minified core)
+public/js/CubismSdkForWeb-*/
+public/js/*.zip
+src-tauri/assets/live2d-models/
+
 # Tauri
 src-tauri/target/
 src-tauri/WixTools/

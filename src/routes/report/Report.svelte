@@ -29,11 +29,21 @@
   let error = null;
   let selectedDate = getLocalDateString();
   let isYesterdayReport = false; // 标记是否显示的是昨日日报
-  let config = null; // 当前配置
+  let config = null;
   let lastLoadedDate = '';
   let reportRequestId = 0;
   let exportInProgress = false;
   let promptSaving = false;
+  let cacheData = null;
+  cache.subscribe(v => {
+    cacheData = v;
+    // 首次或缓存有值时，立即从缓存恢复配置（避免页面切换闪烁）
+    if (!config && v?.config) {
+      config = v.config;
+    }
+  });
+  $: generating = cacheData?.reportGenerating ?? false;
+  $: generating = cacheData?.reportGenerating ?? false;
   $: currentLocale = $locale;
   $: currentReportCacheKey = `${selectedDate}:${currentLocale}`;
 
@@ -54,7 +64,8 @@
 
   async function loadConfig() {
     try {
-      config = await invoke('get_config');
+      const cfg = await invoke('get_config');
+      cache.setConfig(cfg);
     } catch (e) {
       console.error('加载配置失败:', e);
     }
@@ -145,13 +156,12 @@
   }
 
   async function generateReport(force = true) {
-    generating = true;
+    cache.setReportGenerating(true);
     error = null;
     try {
       if (config?.ai_mode === 'summary') {
         await persistReportPrompt();
       }
-      // 只有强制生成的时候才会覆盖已有日报（后端默认规则，这里force指定传入）。
       await invoke('generate_report', { date: selectedDate, force, locale: currentLocale });
       const savedReport = await invoke('get_saved_report', { date: selectedDate, locale: currentLocale });
       report = savedReport || { date: selectedDate, content: '', created_at: Date.now() / 1000 };
@@ -170,7 +180,7 @@
     } catch (e) {
       error = e.toString();
     } finally {
-      generating = false;
+      cache.setReportGenerating(false);
     }
   }
 
@@ -254,6 +264,75 @@
     };
   }
 
+  // 结构化编辑：将 markdown 按 ## 标题拆分为段落
+  let editingSection = -1; // 当前正在编辑的段落索引
+  let editingContent = ''; // 编辑中的内容
+
+  function parseSections(content) {
+    if (!content) return [];
+    const lines = content.split('\n');
+    const sections = [];
+    let currentTitle = '';
+    let currentLines = [];
+
+    for (const line of lines) {
+      // <details> 块作为独立段落，与上方内容分离
+      if (line.startsWith('<details>') || line.startsWith('## ')) {
+        if (currentTitle || currentLines.length) {
+          sections.push({ title: currentTitle, body: currentLines.join('\n') });
+        }
+        currentTitle = line.startsWith('## ') ? line : '';
+        currentLines = line.startsWith('<details>') ? [line] : [];
+      } else {
+        currentLines.push(line);
+      }
+    }
+    if (currentTitle || currentLines.length) {
+      sections.push({ title: currentTitle, body: currentLines.join('\n') });
+    }
+
+    return sections;
+  }
+
+  function startEditSection(sections, index) {
+    editingSection = index;
+    const section = sections[index];
+    editingContent = section.title ? section.title + '\n' + section.body : section.body;
+  }
+
+  function cancelEditSection() {
+    editingSection = -1;
+    editingContent = '';
+  }
+
+  async function saveEditSection(sections, index) {
+    const newContent = editingContent.trim();
+    const newSections = [...sections];
+    const parsed = parseSections(newContent || '');
+    if (parsed.length > 0) {
+      newSections[index] = parsed[0];
+      // If user added more ## headers, merge them in
+      if (parsed.length > 1) {
+        newSections.splice(index + 1, 0, ...parsed.slice(1));
+      }
+    }
+
+    const fullContent = newSections.map(s => {
+      if (s.title && s.body) return s.title + '\n' + s.body;
+      return s.title || s.body;
+    }).join('\n');
+
+    try {
+      await invoke('update_report_content', { date: selectedDate, locale: currentLocale, content: fullContent });
+      report = { ...report, content: fullContent };
+      cache.setReport(currentReportCacheKey, report);
+      editingSection = -1;
+      editingContent = '';
+    } catch (e) {
+      showToast(t('report.editSectionFailed') + ': ' + e, 'error');
+    }
+  }
+
   function formatReportDate(dateStr) {
     const date = new Date(dateStr);
     return formatLocalizedDate(date, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
@@ -263,9 +342,12 @@
     const previousReport = report;
     lastLoadedDate = currentReportCacheKey;
     report = null;
+    editingSection = -1;
     isYesterdayReport = false;
     loadReport(previousReport);
   }
+
+  $: reportSections = parseSections(report?.content || '');
 
   $: reportMeta = resolveReportMeta(report, config);
 
@@ -436,11 +518,28 @@
           <div class="w-1.5 h-1.5 rounded-full {isYesterdayReport ? 'bg-amber-500' : 'bg-emerald-500'}"></div>
           {isYesterdayReport ? t('report.yesterdayPrefix') : ''}{t('report.generatedAt', { time: formatLocalizedDate(new Date(report.created_at * 1000), { year: 'numeric', month: '2-digit', day: '2-digit' }) + ' ' + formatLocalizedTime(new Date(report.created_at * 1000), { hour: '2-digit', minute: '2-digit', second: '2-digit' }) })}
         </div>
-        <div
-          use:interceptReportLinks
-          class="markdown-body report-sheet-body prose prose-slate dark:prose-invert max-w-none"
-        >
-          {@html renderMarkdown(report.content)}
+        <div class="markdown-body report-sheet-body prose prose-slate dark:prose-invert max-w-none">
+          {#each reportSections as section, i}
+            <div class="report-section">
+              <div class="report-section-header">
+                <div
+                  use:interceptReportLinks
+                  class="report-section-content"
+                >
+                  {@html renderMarkdown(section.title + '\n' + section.body)}
+                </div>
+                <button
+                  class="report-section-edit-btn"
+                  on:click={() => startEditSection(reportSections, i)}
+                  title={t('report.editSection')}
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          {/each}
         </div>
       </div>
     </div>
@@ -473,5 +572,38 @@
   {/if}
 </div>
 </div>
+
+<!-- 段落编辑弹窗 -->
+{#if editingSection >= 0}
+  <div class="modal-overlay" on:click|self={cancelEditSection}>
+    <div class="modal-panel" on:click|stopPropagation>
+      <div class="modal-header">
+        <h3 class="modal-title">{t('report.editSection')}</h3>
+        <button class="modal-close" on:click={cancelEditSection}>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <textarea
+          class="report-edit-textarea"
+          bind:value={editingContent}
+        ></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="page-control-btn" on:click={cancelEditSection}>
+          {t('report.cancelEdit')}
+        </button>
+        <button
+          class="page-action-brand"
+          on:click={() => saveEditSection(reportSections, editingSection)}
+        >
+          {t('report.saveSection')}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- 表格 / 标题 / 列表等 markdown 样式已统一放到 app.css .markdown-body -->

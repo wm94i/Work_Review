@@ -3900,8 +3900,10 @@ pub(crate) async fn generate_report_inner(
         state.database.save_report(&daily_report)?;
     }
 
-    if let Some(export_dir) = config.daily_report_export_dir.as_deref() {
-        export_daily_report_markdown(Path::new(export_dir), &date, &report)?;
+    if config.daily_report_auto_export {
+        if let Some(export_dir) = config.daily_report_export_dir.as_deref() {
+            export_daily_report_markdown(Path::new(export_dir), &date, &report)?;
+        }
     }
 
     Ok(report)
@@ -3958,6 +3960,29 @@ pub async fn get_saved_report(
     state: State<'_, Arc<Mutex<AppState>>>,
 ) -> Result<Option<DailyReport>, AppError> {
     get_saved_report_inner(date, locale, state.inner())
+}
+
+/// 更新已保存日报的内容（用于结构化编辑）
+#[tauri::command]
+pub async fn update_report_content(
+    date: String,
+    locale: Option<String>,
+    content: String,
+    state: State<'_, Arc<Mutex<AppState>>>,
+) -> Result<(), AppError> {
+    let report_locale = AppLocale::from_option(locale.as_deref());
+    let locale_code = report_locale.as_code();
+    let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
+    let existing = state
+        .database
+        .get_report(&date, Some(locale_code))?
+        .ok_or_else(|| AppError::Database(rusqlite::Error::InvalidParameterName("报告不存在".to_string())))?;
+    let updated = DailyReport {
+        content,
+        ..existing
+    };
+    state.database.save_report(&updated)?;
+    Ok(())
 }
 
 pub(crate) fn export_report_markdown_inner(

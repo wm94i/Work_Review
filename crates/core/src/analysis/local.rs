@@ -107,7 +107,7 @@ impl LocalAnalyzer {
             .take(20)
             .collect::<Vec<_>>();
 
-        let timeline = generate_session_timeline(activities, self.locale);
+        let timeline = generate_activity_timeline(activities, self.locale);
 
         let base_prompt = match self.locale {
             AppLocale::ZhCn => format!(
@@ -413,13 +413,6 @@ impl Analyzer for LocalAnalyzer {
             report.push_str(&hourly_summary);
         }
 
-        // 活动时间线
-        let timeline = generate_activity_timeline(activities, locale);
-        if !timeline.is_empty() {
-            report.push_str(&timeline);
-            report.push_str("\n\n");
-        }
-
         if !stats.domain_usage.is_empty() {
             report.push_str(match locale {
                 AppLocale::ZhCn => "\n## 五、网站访问\n\n",
@@ -514,6 +507,13 @@ impl Analyzer for LocalAnalyzer {
                     }
                 }
             }
+        }
+
+        // 活动时间线放在最底部
+        let timeline = generate_activity_timeline(activities, locale);
+        if !timeline.is_empty() {
+            report.push_str("\n\n");
+            report.push_str(&timeline);
         }
 
         Ok(GeneratedReport {

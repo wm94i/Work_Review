@@ -6,6 +6,7 @@ const STORAGE_KEY = 'work-review-assistant-state';
 const DEFAULT_STATE = {
   messages: [],
   selectedModelId: BASIC_ASSISTANT_MODEL_ID,
+  sending: false,
 };
 
 function normalizeMessage(message) {
@@ -95,6 +96,8 @@ function createAssistantStore() {
           ? messages.slice(-40).map((message) => normalizeMessage(message))
           : [],
       })),
+    setSending: (sending) =>
+      update((state) => ({ ...state, sending })),
     reset: () => set(DEFAULT_STATE),
   };
 }

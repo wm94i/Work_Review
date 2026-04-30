@@ -194,6 +194,129 @@ pub fn is_browser_app(app_name: &str) -> bool {
         || app_lower.contains("iexplore")
 }
 
+/// 清理浏览器窗口标题中的内部页面信息。
+/// Chrome 等浏览器会把内存警告、标签页计数等信息拼到窗口标题里，
+/// 例如 "文档查看 - 内存用量高 - 841 MB - Google Chrome - momoi (行走的卫星)"
+/// 清理后只保留有意义的页面标题。
+pub fn clean_browser_window_title(title: &str, app_name: &str) -> String {
+    if !is_browser_app(app_name) || title.is_empty() {
+        return title.to_string();
+    }
+
+    let app_name_lower = app_name.to_lowercase();
+    let browser_suffix = if app_name_lower.contains("chrome") {
+        "Google Chrome"
+    } else if app_name_lower.contains("msedge") || app_name_lower.contains("microsoft edge") {
+        "Microsoft Edge"
+    } else if app_name_lower.contains("brave") {
+        "Brave"
+    } else if app_name_lower.contains("opera") {
+        "Opera"
+    } else if app_name_lower.contains("vivaldi") {
+        "Vivaldi"
+    } else if app_name_lower.contains("firefox") {
+        "Firefox"
+    } else if app_name_lower.contains("safari") {
+        "Safari"
+    } else if app_name_lower.contains("arc") {
+        "Arc"
+    } else {
+        ""
+    };
+
+    // 按 " - " 分段，过滤掉浏览器内部信息段
+    let segments: Vec<&str> = title.split(" - ").collect();
+    if segments.len() <= 1 {
+        return title.to_string();
+    }
+
+    let mut clean_segments: Vec<&str> = Vec::new();
+    let mut found_browser_suffix = false;
+
+    for seg in &segments {
+        let seg_trimmed = seg.trim();
+
+        // 跳过浏览器名本身（如 "Google Chrome"）
+        if !browser_suffix.is_empty() && seg_trimmed == browser_suffix {
+            found_browser_suffix = true;
+            continue;
+        }
+
+        // 跳过内存/性能警告："内存用量高 - 841 MB", "Memory usage high - 841 MB"
+        if is_browser_internal_segment(seg_trimmed) {
+            continue;
+        }
+
+        clean_segments.push(seg_trimmed);
+    }
+
+    if clean_segments.is_empty() {
+        return title.to_string();
+    }
+
+    clean_segments.join(" - ")
+}
+
+fn is_size_value(s: &str) -> bool {
+    let s = s.trim();
+    let suffixes = ["kb", "mb", "gb", "tb"];
+    for suffix in &suffixes {
+        if let Some(num_part) = s.strip_suffix(suffix) {
+            let num_part = num_part.trim();
+            if num_part.parse::<f64>().is_ok() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// 判断是否是浏览器窗口标题中的内部信息段（非页面标题）
+fn is_browser_internal_segment(segment: &str) -> bool {
+    let lower = segment.to_lowercase();
+
+    // 内存/性能警告
+    let memory_patterns = [
+        "内存用量高",
+        "内存使用量高",
+        "内存不足",
+        "memory usage high",
+        "memory low",
+        "high memory",
+        "out of memory",
+    ];
+    for pat in &memory_patterns {
+        if lower.contains(pat) {
+            return true;
+        }
+    }
+
+    // 纯数字 + 单位 (如 "841 MB", "1.2 GB")——内存警告的数值段
+    if is_size_value(&lower) {
+        return true;
+    }
+
+    // 标签页/窗口计数 (如 "3 个标签页", "2 tabs", "(3)")
+    let tab_patterns = [
+        "个标签页",
+        "個分頁",
+        "tabs",
+        "tab",
+    ];
+    for pat in &tab_patterns {
+        if lower.contains(pat) && lower.len() < 20 {
+            return true;
+        }
+    }
+
+    // chrome:// internal pages
+    if lower.starts_with("chrome://") || lower.starts_with("edge://") || lower.starts_with("about:") {
+        return true;
+    }
+
+    false
+}
+
 /// 统一应用显示名称，避免不同来源（进程名、数据库历史、运行中列表）出现重复项
 pub fn normalize_display_app_name(app_name: &str) -> String {
     let trimmed = app_name
@@ -1102,12 +1225,14 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
         let app_name = normalize_display_app_name(&raw_app_name);
         let is_minimized = IsIconic(hwnd) != 0;
 
-        // 尝试获取浏览器 URL (Windows)
+        // 尝试获取浏览器 URL (Windows)，使用原始标题
         let browser_url = if include_browser_url {
             get_browser_url_windows(&raw_app_name, &window_title, hwnd as isize)
         } else {
             None
         };
+
+        let window_title = clean_browser_window_title(&window_title, &app_name);
 
         let window_bounds = {
             let mut rect = RECT {
@@ -1478,10 +1603,11 @@ mod tests {
         browser_url_system_events_process_name_macos, browser_url_ui_script_macos,
     };
     use super::{
-        categorize_app, categorize_app_with_rules, decode_mozlz4_bytes,
-        extract_active_tab_url_from_session_store_value, extract_url_from_title,
-        find_focused_sway_node, firefox_family_profile_dir_from_ini, is_browser_app,
-        is_probable_domain, normalize_display_app_name, normalize_macos_frontmost_app_name,
+        categorize_app, categorize_app_with_rules, clean_browser_window_title,
+        decode_mozlz4_bytes, extract_active_tab_url_from_session_store_value,
+        extract_url_from_title, find_focused_sway_node,
+        firefox_family_profile_dir_from_ini, is_browser_app, is_probable_domain,
+        normalize_display_app_name, normalize_macos_frontmost_app_name,
         normalize_possible_url, parse_gnome_focused_window_dbus_output,
         parse_hyprland_window_bounds, parse_kdotool_geometry_output,
         parse_macos_window_bounds_fields, parse_xdotool_geometry_shell_output,
@@ -2046,9 +2172,35 @@ Path=Profiles/wkm9x2lf.Default (release)
             Some("https://example.com/tasks?id=1".to_string())
         );
     }
+
+    #[test]
+    fn 浏览器标题应清理内存警告信息() {
+        assert_eq!(
+            clean_browser_window_title(
+                "文档查看 - 内存用量高 - 841 MB - Google Chrome - momoi (行走的卫星)",
+                "Google Chrome"
+            ),
+            "文档查看 - momoi (行走的卫星)"
+        );
+    }
+
+    #[test]
+    fn 浏览器标题应保留纯页面标题() {
+        assert_eq!(
+            clean_browser_window_title("GitHub - mozilla/rust: Rust", "Google Chrome"),
+            "GitHub - mozilla/rust: Rust"
+        );
+    }
+
+    #[test]
+    fn 非浏览器标题不做清理() {
+        assert_eq!(
+            clean_browser_window_title("main.rs - My Project - Visual Studio Code", "Code"),
+            "main.rs - My Project - Visual Studio Code"
+        );
+    }
 }
 
-/// 获取当前活动窗口信息 (macOS)
 #[cfg(target_os = "macos")]
 pub fn get_active_window() -> Result<ActiveWindow> {
     get_active_window_with_options(true)
@@ -2134,26 +2286,28 @@ fn get_active_window_with_options(include_browser_url: bool) -> Result<ActiveWin
             .get(2)
             .map(|value| value.trim())
             .filter(|value| !value.is_empty());
-        let window_title = parts.get(3).copied().unwrap_or("").to_string();
+        let raw_window_title = parts.get(3).copied().unwrap_or("").to_string();
         let window_bounds = parse_macos_window_bounds_fields(
             parts.get(4).copied(),
             parts.get(5).copied(),
             parts.get(6).copied(),
             parts.get(7).copied(),
         )
-        .or_else(|| find_frontmost_window_bounds(&raw_app_name, &window_title));
+        .or_else(|| find_frontmost_window_bounds(&raw_app_name, &raw_window_title));
 
         // 对 Electron / Helper 类通用进程做名称还原，优先使用 app path / bundle id。
         let app_name = normalize_macos_frontmost_app_name(
             &raw_app_name,
-            &window_title,
+            &raw_window_title,
             bundle_identifier,
             app_path,
         );
 
-        // 如果是浏览器，尝试获取 URL
+        let window_title = clean_browser_window_title(&raw_window_title, &app_name);
+
+        // 如果是浏览器，尝试获取 URL（使用原始标题，清理后的标题可能丢失 URL 信息）
         let browser_url = if include_browser_url {
-            get_browser_url(&app_name, &window_title)
+            get_browser_url(&app_name, &raw_window_title)
         } else {
             None
         };
@@ -3332,6 +3486,7 @@ fn get_active_window_linux_x11() -> Result<ActiveWindow> {
     });
 
     let display_name = normalize_display_app_name(&app_name);
+    let window_title = clean_browser_window_title(&window_title, &display_name);
 
     Ok(ActiveWindow {
         app_name: display_name,
@@ -3516,10 +3671,11 @@ fn build_linux_wayland_active_window(
     let app_name = normalize_display_app_name(trimmed_app_name);
     let executable_path = pid.and_then(read_executable_path_from_pid);
     let browser_url = resolve_browser_url_for_window_linux(&app_name, trimmed_title);
+    let cleaned_title = clean_browser_window_title(trimmed_title, &app_name);
 
     Ok(ActiveWindow {
         app_name,
-        window_title: trimmed_title.to_string(),
+        window_title: cleaned_title,
         browser_url,
         executable_path,
         window_bounds,
@@ -3620,9 +3776,12 @@ fn parse_gnome_focused_window_dbus_output(output: &str) -> Result<ActiveWindow> 
         .filter(|pid| *pid > 0)
         .and_then(|pid| read_executable_path_from_pid(pid as u32));
 
+    let app_name = normalize_display_app_name(raw_app_name);
+    let cleaned_title = clean_browser_window_title(&window_title, &app_name);
+
     Ok(ActiveWindow {
-        app_name: normalize_display_app_name(raw_app_name),
-        window_title,
+        app_name,
+        window_title: cleaned_title,
         browser_url: None,
         executable_path,
         window_bounds,
@@ -4091,9 +4250,10 @@ pub fn get_visible_windows() -> Result<Vec<ActiveWindow>> {
                 let app_name = parts.first().unwrap_or(&"Unknown").to_string();
                 let window_title = parts.get(1).unwrap_or(&"").to_string();
                 let browser_url = get_browser_url(&app_name, &window_title);
+                let cleaned_title = clean_browser_window_title(&window_title, &app_name);
                 ActiveWindow {
                     app_name,
-                    window_title,
+                    window_title: cleaned_title,
                     browser_url,
                     executable_path: None,
                     window_bounds: None,

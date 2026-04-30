@@ -78,6 +78,9 @@
       if (typeof config.daily_report_export_dir !== 'string' && config.daily_report_export_dir !== null) {
         config.daily_report_export_dir = null;
       }
+      if (typeof config.daily_report_auto_export !== 'boolean') {
+        config.daily_report_auto_export = false;
+      }
       if (typeof config.localhost_api_enabled !== 'boolean') {
         config.localhost_api_enabled = false;
       }

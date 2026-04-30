@@ -30,7 +30,6 @@ Work Review continuously records the apps you use, websites you visit, active wi
 - Jump from aggregate stats to concrete pages, titles, and screenshots
 - Multi-segment work time, per-domain semantic tagging, and hourly activity views
 - Lightweight mode, Markdown report export, and multi-display screenshot strategies
-- `Desktop Avatar Beta` — lightweight desktop companion for presence feedback while you work
 
 > All data stays local by default. AI features are optional.
 
@@ -65,14 +64,14 @@ Work Review is closer to a personal work-trace system:
 | Capability | Description |
 |-----|------|
 | Work assistant | Answers questions based on your actual local records |
-| Time-range understanding | Understands “yesterday”, “this week”, or “last 3 days” |
+| Time-range understanding | Understands “yesterday”, “this week”, or “last N days” |
 | Session grouping | Groups fragmented actions into longer work sessions |
 | Todo extraction | Pulls likely follow-up items from pages, titles, and context |
 | Daily report | Structured reports with history view, hourly activity summaries, Markdown export, and AI prompt attachments |
 | Dual response modes | Choose between stable templates and AI-enhanced output |
 | Website semantic tagging | Click a browser domain in the overview to change its semantic category (e.g. tag as "Leisure" to exclude from work time); changes backfill history automatically |
 | Multi-segment work time | Set multiple work segments (e.g. morning + afternoon); break time is excluded from work duration |
-| Desktop Avatar Beta (In Progress) | Shows lightweight state feedback such as working, reading, meeting, music, video, and generating, while interaction details and preset behavior are still being refined |
+| Desktop Avatar Beta (In Progress) | The first step toward a personal work Agent: a future desktop partner that can sense work context, remind you proactively, and assist decisions |
 
 ### Bot Integrations Beta (Telegram / Feishu)
 
@@ -314,23 +313,17 @@ src-tauri/src/        Rust backend (monitoring, database, analysis, privacy, upd
 
 ## Community
 
-### WeChat Group
+<p align="center"><strong>WeChat Group</strong></p>
 
 <p align="center">
-  <img src="docs/group/vx.png" alt="Work Review WeChat group QR code" width="280" />
+  <img src="docs/group/vx.png" alt="Work Review WeChat group QR code" width="220" />
 </p>
 
-> If the group QR code has expired, follow the official account below and use the latest group entry there.
-
-### Official Account
+<p align="center"><strong>Official Account</strong></p>
 
 <p align="center">
-  <img src="docs/group/gzh.jpg" alt="Work Review official account QR code" width="280" />
+  <img src="docs/group/gzh.jpg" alt="Work Review official account QR code" width="220" />
 </p>
-
-> The official account is the fallback entry when the WeChat group QR code expires.
-
-### Telegram
 
 [![Telegram](https://img.shields.io/badge/Telegram-Join-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/+stYJLlkZbDYwM2Rl)
 

@@ -1140,6 +1140,67 @@
   text-align: right;
 }
 
+/* details/summary 折叠组件（活动时间线等） */
+.markdown-body details {
+  margin: 1em 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.dark .markdown-body details {
+  border-color: #334155;
+}
+
+.markdown-body summary {
+  padding: 0.625rem 1rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  cursor: pointer;
+  background: #f8fafc;
+  color: #475569;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.markdown-body summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-body summary::before {
+  content: '▶';
+  font-size: 0.65em;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.markdown-body details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.dark .markdown-body summary {
+  background: #1e293b;
+  color: #94a3b8;
+}
+
+.markdown-body details[open] {
+  /* 展开时限制高度，内部滚动 */
+}
+
+.markdown-body details[open] > :not(summary) {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.markdown-body details table {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
 /* ===== A 包：核心工作流统一升级 ===== */
 
 .sidebar-editorial-shell {
@@ -1363,6 +1424,155 @@
   background: rgba(255, 247, 237, 0.56);
   border-radius: 0 1rem 1rem 0;
   padding: 0.9rem 1rem;
+}
+
+/* 报告段落编辑 */
+.report-section {
+  position: relative;
+}
+.report-section + .report-section {
+  margin-top: 0.25rem;
+}
+.report-section-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.report-section-content {
+  flex: 1;
+  min-width: 0;
+}
+.report-section-edit-btn {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 0.375rem;
+  border-radius: 0.375rem;
+  color: var(--color-text-muted);
+  margin-top: 0.25rem;
+}
+.report-section:hover .report-section-edit-btn {
+  opacity: 1;
+}
+.report-section-edit-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text);
+}
+.dark .report-section-edit-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* 通用弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  animation: modal-fade-in 0.15s ease;
+}
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal-panel {
+  background: #ffffff;
+  border-radius: 1rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  width: 92vw;
+  max-width: 48rem;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  animation: modal-scale-in 0.15s ease;
+}
+@keyframes modal-scale-in {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.modal-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1e293b;
+}
+.modal-close {
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+  color: #94a3b8;
+}
+.modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #334155;
+}
+.dark .modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+}
+.report-edit-textarea {
+  width: 100%;
+  min-height: 480px;
+  padding: 0.75rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.8;
+  resize: vertical;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #1e293b;
+}
+.report-edit-textarea:focus {
+  outline: none;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4);
+}
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid #e2e8f0;
+}
+.dark .modal-panel {
+  background: #1e293b;
+}
+.dark .modal-header {
+  border-bottom-color: #334155;
+}
+.dark .modal-title {
+  color: #f1f5f9;
+}
+.dark .modal-close {
+  color: #64748b;
+}
+.dark .modal-close:hover {
+  color: #e2e8f0;
+}
+.dark .modal-footer {
+  border-top-color: #334155;
+}
+.dark .report-edit-textarea {
+  background: #0f172a;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+.dark .report-edit-textarea:focus {
+  border-color: #818cf8;
 }
 
 .ask-workbench-shell {

@@ -400,6 +400,21 @@
           </button>
         {/if}
       </div>
+
+      <div class="mt-4 flex items-center justify-between">
+        <div>
+          <p class="settings-text">{t('settingsStorage.autoExport')}</p>
+          <p class="settings-muted mt-0.5">{t('settingsStorage.autoExportHint')}</p>
+        </div>
+        <button
+          type="button"
+          class="switch-track {config.daily_report_auto_export ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'} {!config.daily_report_export_dir ? 'opacity-60 cursor-not-allowed' : ''}"
+          on:click={() => { if (config.daily_report_export_dir) config.daily_report_auto_export = !config.daily_report_auto_export; }}
+          disabled={!config.daily_report_export_dir}
+        >
+          <span class="switch-thumb {config.daily_report_auto_export ? 'translate-x-5' : 'translate-x-0'}"></span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
