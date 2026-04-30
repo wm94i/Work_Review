@@ -998,16 +998,17 @@ impl Database {
         Ok((deleted, paths))
     }
 
-    /// 清理当天的重复活动记录
-    /// 对于每个应用（非浏览器），合并同名记录
-    /// 删除指定日期之前的所有活动记录
+    /// 删除指定日期之前的所有活动记录（使用时间戳范围查询以利用索引）
     pub fn delete_activities_before_date(&self, before_date: &str) -> Result<usize> {
         let conn = self.conn.lock().map_err(|e| {
             crate::error::AppError::Unknown(format!("数据库锁获取失败: {e}"))
         })?;
+        let date_parsed = chrono::NaiveDate::parse_from_str(before_date, "%Y-%m-%d")
+            .map_err(|e| crate::error::AppError::Config(e.to_string()))?;
+        let upper_ts = safe_local_timestamp(date_parsed.and_hms_opt(0, 0, 0).unwrap());
         let count = conn.execute(
-            "DELETE FROM activities WHERE date(timestamp, 'unixepoch', 'localtime') < ?1",
-            rusqlite::params![before_date],
+            "DELETE FROM activities WHERE timestamp < ?1",
+            rusqlite::params![upper_ts],
         )?;
         Ok(count)
     }

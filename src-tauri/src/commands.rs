@@ -3891,6 +3891,18 @@ pub(crate) async fn generate_report_inner(
     Ok(report)
 }
 
+struct ReportGenerationGuard {
+    state: Arc<Mutex<AppState>>,
+}
+
+impl Drop for ReportGenerationGuard {
+    fn drop(&mut self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.generating_report = false;
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn generate_report(
     date: String,
@@ -3906,12 +3918,8 @@ pub async fn generate_report(
         }
         s.generating_report = true;
     }
-    let result = generate_report_inner(date, force, locale, &app, state.inner()).await;
-    {
-        let mut s = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
-        s.generating_report = false;
-    }
-    result
+    let _guard = ReportGenerationGuard { state: state.inner().clone() };
+    generate_report_inner(date, force, locale, &app, state.inner()).await
 }
 
 /// 获取已保存的日报

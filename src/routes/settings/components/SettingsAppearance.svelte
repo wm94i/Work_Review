@@ -229,10 +229,12 @@
 
     config.break_reminder_enabled = !config.break_reminder_enabled;
     dispatch('change', config);
+    saveConfigQuietly();
   }
 
   function handleBreakReminderIntervalChange() {
     dispatch('change', config);
+    saveConfigQuietly();
   }
 
   function handleBgFileSelect(event) {
@@ -257,6 +259,7 @@
         await invoke('save_background_image', { data: b64Data });
         if (appearanceDestroyed) return;
         config.background_image = 'background.jpg';
+        await invoke('save_config', { config });
         const freshB64 = await invoke('get_background_image');
         if (appearanceDestroyed) return;
         const imageUrl = freshB64 ? `data:image/jpeg;base64,${freshB64}` : null;
@@ -281,6 +284,7 @@
       bgPreview = null;
       config.background_image = null;
       dispatchBgEvent(null);
+      await invoke('save_config', { config });
     } catch (e) {
       console.error('清除背景图失败:', e);
       showToast(t('settingsAppearance.clearFailed', { error: e }), 'error');
@@ -291,12 +295,14 @@
     config.background_opacity = parseFloat(val);
     dispatch('change', config);
     dispatchBgEvent(bgPreview);
+    saveConfigQuietly();
   }
 
   function updateBgBlur(val) {
     config.background_blur = parseInt(val);
     dispatch('change', config);
     dispatchBgEvent(bgPreview);
+    saveConfigQuietly();
   }
 
   function dispatchBgEvent(image) {
@@ -307,6 +313,14 @@
         blur: config.background_blur ?? 1,
       }
     }));
+  }
+
+  async function saveConfigQuietly() {
+    try {
+      await invoke('save_config', { config });
+    } catch (e) {
+      console.error('自动保存配置失败:', e);
+    }
   }
 </script>
 
@@ -319,7 +333,6 @@
           <div class="settings-text">{t('settingsAppearance.avatar')}</div>
         </div>
         <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarDesc')}</div>
-        <div class="settings-muted mt-1 text-[12px]">{t('settingsAppearance.avatarBetaHint')}</div>
       </div>
       <button
         type="button"
@@ -336,7 +349,6 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="settings-text">{t('settingsAppearance.avatarSize')}</div>
-          <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarSizeHint')}</div>
         </div>
         <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">
           {avatarScaleLabel}
@@ -367,7 +379,6 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="settings-text">{t('settingsAppearance.avatarOpacity')}</div>
-          <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarOpacityHint')}</div>
         </div>
         <div class="text-sm font-semibold text-slate-700 dark:text-slate-200">
           {avatarOpacityLabel}
@@ -398,7 +409,6 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="settings-text">{t('settingsAppearance.avatarPersona')}</div>
-          <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarPersonaHint')}</div>
         </div>
         {#if avatarPersonaSaving}
           <div class="text-xs text-slate-400 dark:text-slate-500">{t('settingsAppearance.syncing')}</div>
@@ -435,7 +445,6 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="settings-text">{t('settingsAppearance.avatarPreset')}</div>
-          <div class="settings-muted mt-0.5">{t('settingsAppearance.avatarPresetHint')}</div>
         </div>
         {#if avatarPresetSaving}
           <div class="text-xs text-slate-400 dark:text-slate-500">{t('settingsAppearance.syncing')}</div>
@@ -469,7 +478,6 @@
     <div class="flex items-center justify-between gap-4">
       <div>
         <div class="settings-text">{t('settingsAppearance.breakReminder')}</div>
-        <div class="settings-muted mt-0.5">{t('settingsAppearance.breakReminderDescription')}</div>
         {#if !config.avatar_enabled}
           <div class="settings-muted mt-1 text-[12px]">{t('settingsAppearance.breakReminderRequiresAvatar')}</div>
         {/if}
@@ -501,7 +509,6 @@
             <option value={interval}>{interval} 分钟</option>
           {/each}
         </select>
-        <p class="settings-note">{t('settingsAppearance.breakReminderHint')}</p>
       </div>
     {/if}
   </div>
@@ -512,7 +519,6 @@
 {#if showBackgroundSettings}
 <div class="settings-card" data-locale={currentLocale}>
   <h3 class="settings-card-title">{t('settingsAppearance.backgroundImage')}</h3>
-  <p class="settings-card-desc">{t('settingsAppearance.backgroundImageDesc')}</p>
 
   <div class="settings-section">
     <!-- 预览 + 上传 -->
