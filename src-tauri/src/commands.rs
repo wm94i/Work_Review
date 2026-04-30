@@ -5611,7 +5611,13 @@ pub async fn change_data_dir(
             .unwrap_or_else(|_| requested_path.clone())
     };
 
-    // 先短暂获取锁，读取配置并做安全 SQLite 备份，然后立即释放
+    // 先清空目标目录中已有的受管条目（必须在 backup_to 之前，否则会删掉刚备份的数据库）
+    let replaced_existing_data = ensure_target_dir_ready(&target_dir)?;
+
+    // 复制截图等文件（在锁外执行，不阻塞截图循环）
+    let copied_files = copy_managed_data_without_live_db(&current_dir, &target_dir)?;
+
+    // 短暂获取锁，做安全 SQLite 备份，然后立即释放
     let config = {
         let state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
         // SQLite 备份必须在持锁状态下执行（backup_to 内部做 WAL checkpoint + VACUUM INTO）
@@ -5621,9 +5627,6 @@ pub async fn change_data_dir(
         state.config.clone()
     };
 
-    // 重文件 I/O 在锁外执行，不阻塞截图循环和其他命令
-    let replaced_existing_data = ensure_target_dir_ready(&target_dir)?;
-    let copied_files = copy_managed_data_without_live_db(&current_dir, &target_dir)?;
     let config_path = target_dir.join("config.json");
     config.save(&config_path)?;
     crate::save_data_dir_preference(&target_dir)?;
@@ -5631,6 +5634,9 @@ pub async fn change_data_dir(
     // 重新获取锁，仅做轻量状态更新
     let mut state = state.lock().map_err(|e| AppError::Unknown(e.to_string()))?;
     state.database = Database::new(&target_dir.join("workreview.db"))?;
+    if let Err(e) = state.database.rebuild_fts_index() {
+        log::warn!("迁移后 FTS 索引重建失败: {e}");
+    }
     state.privacy_filter = PrivacyFilter::from_config(&config.privacy);
     state.screenshot_service = ScreenshotService::new(&target_dir, &config.storage);
     state.storage_manager = StorageManager::new(&target_dir, config.storage.clone());
