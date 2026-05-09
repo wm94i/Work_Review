@@ -478,10 +478,10 @@
               }}
               class="control-input"
             >
+              <option value="__manual__">{t('settingsAI.manualModel')}</option>
               {#each fetchedModels as model (model)}
                 <option value={model}>{model}</option>
               {/each}
-              <option value="__manual__">{t('settingsAI.manualModel')}</option>
             </select>
           {/if}
         </div>

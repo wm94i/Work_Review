@@ -223,13 +223,21 @@ Requires: Node.js 18+ / Rust stable / Tauri 2 CLI · Tech stack: Tauri 2 + Rust 
   <img src="docs/group/vx.jpg" alt="WeChat Group" width="220" />
 </p>
 
+<p align="center"><small>If the QR code has expired, follow the official account below for the latest group invitation, or join the TG group</small></p>
+
+---
+
 <p align="center"><strong>WeChat Official Account</strong></p>
 
 <p align="center">
   <img src="docs/group/gzh.jpg" alt="Official Account" width="220" />
 </p>
 
-[![Telegram](https://img.shields.io/badge/Telegram-Join-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/+stYJLlkZbDYwM2Rl)
+---
+
+<p align="center">
+  <a href="https://t.me/+stYJLlkZbDYwM2Rl"><img src="https://img.shields.io/badge/Telegram-Join-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
+</p>
 
 ## Acknowledgements
 

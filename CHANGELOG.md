@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.46] - 2026-05-09
+
+### 修复
+- 修复所有 AI 提供商（豆包、OpenAI、Claude、Gemini、Ollama 等）的 API 地址双重拼接问题：用户填写完整 URL 时不再导致 404。
+- 模型列表下拉菜单中"手动输入"选项移至顶部。
+- 修复浏览器/应用已打开时启动软件导致 URL 丢失和分类显示"未知"的问题：首次轮询现在会主动探测浏览器 URL。
+
 ## [1.0.45] - 2026-05-08
 
 ### 新增

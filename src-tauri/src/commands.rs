@@ -2530,8 +2530,10 @@ async fn generate_text_answer_with_model(
 
     match model_config.provider {
         AiProvider::Ollama => {
+            let ollama_base = model_config.endpoint.trim().trim_end_matches('/');
+            let ollama_url = if ollama_base.ends_with("/api/chat") { ollama_base.to_string() } else { format!("{ollama_base}/api/chat") };
             let response = client
-                .post(format!("{}/api/chat", model_config.endpoint))
+                .post(&ollama_url)
                 .json(&serde_json::json!({
                     "model": model_config.model,
                     "messages": [
@@ -2573,8 +2575,10 @@ async fn generate_text_answer_with_model(
                 return Err(AppError::Analysis("Claude API Key 未配置".to_string()));
             }
 
+            let claude_base = model_config.endpoint.trim().trim_end_matches('/');
+            let claude_url = if claude_base.ends_with("/messages") { claude_base.to_string() } else { format!("{claude_base}/messages") };
             let response = client
-                .post(format!("{}/messages", model_config.endpoint))
+                .post(&claude_url)
                 .header("x-api-key", api_key)
                 .header("anthropic-version", "2023-06-01")
                 .header("content-type", "application/json")
@@ -2616,11 +2620,10 @@ async fn generate_text_answer_with_model(
                 return Err(AppError::Analysis("Gemini API Key 未配置".to_string()));
             }
 
+            let gemini_base = model_config.endpoint.trim().trim_end_matches('/');
+            let gemini_url = format!("{}/models/{}:generateContent?key={}", gemini_base, model_config.model, api_key);
             let response = client
-                .post(format!(
-                    "{}/models/{}:generateContent?key={}",
-                    model_config.endpoint, model_config.model, api_key
-                ))
+                .post(&gemini_url)
                 .json(&serde_json::json!({
                     "contents": [{
                         "parts": [{
@@ -2654,8 +2657,14 @@ async fn generate_text_answer_with_model(
             Ok(answer)
         }
         _ => {
+            let endpoint = model_config.endpoint.trim().trim_end_matches('/');
+            let url = if endpoint.ends_with("/chat/completions") {
+                endpoint.to_string()
+            } else {
+                format!("{endpoint}/chat/completions")
+            };
             let mut request = client
-                .post(format!("{}/chat/completions", model_config.endpoint))
+                .post(&url)
                 .json(&serde_json::json!({
                     "model": model_config.model,
                     "messages": [
@@ -4608,6 +4617,10 @@ fn openai_compatible_chat_completion_urls(endpoint: &str) -> Vec<String> {
         return Vec::new();
     }
 
+    if base.ends_with("/chat/completions") {
+        return vec![base.to_string()];
+    }
+
     let mut urls = vec![format!("{base}/chat/completions")];
     if !base.ends_with("/v1") {
         urls.push(format!("{base}/v1/chat/completions"));
@@ -4700,8 +4713,10 @@ async fn test_claude(
 ) -> Result<String, String> {
     let api_key = config.api_key.as_ref().ok_or("未配置 API Key")?;
 
+    let claude_base = config.endpoint.trim().trim_end_matches('/');
+    let claude_url = if claude_base.ends_with("/messages") { claude_base.to_string() } else { format!("{claude_base}/messages") };
     let response = client
-        .post(format!("{}/messages", config.endpoint))
+        .post(&claude_url)
         .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&serde_json::json!({

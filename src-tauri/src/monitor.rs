@@ -3422,8 +3422,16 @@ fn resolve_browser_url_for_window_linux(app_name: &str, window_title: &str) -> O
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn resolve_browser_url_for_window(_app_name: &str, _window_title: &str) -> Option<String> {
-    None
+pub fn resolve_browser_url_for_window(app_name: &str, window_title: &str) -> Option<String> {
+    if !is_browser_app(app_name) {
+        return None;
+    }
+    // 获取前台窗口 hwnd 并尝试读取浏览器 URL
+    let hwnd = unsafe { winapi::um::winuser::GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+    get_browser_url_windows(app_name, window_title, hwnd as isize)
 }
 
 /// 获取当前活动窗口信息 (Linux X11，使用 xdotool + xprop)

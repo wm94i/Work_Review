@@ -9,6 +9,6 @@ test('云端分析器应使用配置的兼容端点，而不是写死官方 Open
   ]);
 
   assert.doesNotMatch(cloudSource, /https:\/\/api\.openai\.com\/v1\/chat\/completions/);
-  assert.match(cloudSource, /format!\("\{\}\/chat\/completions", self\.endpoint\)/);
+  assert.match(cloudSource, /build_chat_url/);
   assert.match(analysisSource, /CloudAnalyzer::new\(\s*endpoint,/);
 });

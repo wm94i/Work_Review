@@ -223,13 +223,21 @@ npm run tauri:build  # 构建
   <img src="docs/group/vx.jpg" alt="微信群" width="220" />
 </p>
 
+<p align="center"><small>如果二维码失效，关注下方公众号获取最新进群方式，或者进 TG 群吐槽</small></p>
+
+---
+
 <p align="center"><strong>公众号</strong></p>
 
 <p align="center">
   <img src="docs/group/gzh.jpg" alt="公众号" width="220" />
 </p>
 
-[![Telegram](https://img.shields.io/badge/Telegram-加入群组-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/+stYJLlkZbDYwM2Rl)
+---
+
+<p align="center">
+  <a href="https://t.me/+stYJLlkZbDYwM2Rl"><img src="https://img.shields.io/badge/Telegram-加入群组-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram"></a>
+</p>
 
 ## 致谢
 

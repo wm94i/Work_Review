@@ -134,6 +134,10 @@ fn openai_compatible_chat_completion_urls(endpoint: &str) -> Vec<String> {
         return Vec::new();
     }
 
+    if base.ends_with("/chat/completions") {
+        return vec![base.to_string()];
+    }
+
     let mut urls = vec![format!("{base}/chat/completions")];
     if !base.ends_with("/v1") {
         urls.push(format!("{base}/v1/chat/completions"));
@@ -876,6 +880,18 @@ mod tests {
         assert_eq!(
             openai_compatible_chat_completion_urls("https://api.openai.com/v1"),
             vec!["https://api.openai.com/v1/chat/completions".to_string()]
+        );
+    }
+
+    #[test]
+    fn 已包含_chat_completions_的端点不应重复拼接() {
+        assert_eq!(
+            openai_compatible_chat_completion_urls("https://ark.cn-beijing.volces.com/api/v3/chat/completions"),
+            vec!["https://ark.cn-beijing.volces.com/api/v3/chat/completions".to_string()]
+        );
+        assert_eq!(
+            openai_compatible_chat_completion_urls("https://example.com/v1/chat/completions/"),
+            vec!["https://example.com/v1/chat/completions".to_string()]
         );
     }
 }

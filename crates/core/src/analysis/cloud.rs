@@ -11,6 +11,15 @@ use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
 
+fn build_chat_url(endpoint: &str) -> String {
+    let base = endpoint.trim().trim_end_matches('/');
+    if base.ends_with("/chat/completions") {
+        base.to_string()
+    } else {
+        format!("{base}/chat/completions")
+    }
+}
+
 fn screenshot_prompt(locale: AppLocale) -> &'static str {
     match locale {
         AppLocale::ZhCn => "请简要描述这张截图中的工作内容，用简体中文回答，限制在 50 字以内。",
@@ -67,7 +76,7 @@ impl CloudAnalyzer {
 
         let response = self
             .client
-            .post(format!("{}/chat/completions", self.endpoint))
+            .post(build_chat_url(&self.endpoint))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&json!({
                 "model": self.model,
@@ -140,7 +149,7 @@ impl CloudAnalyzer {
 
         let response = self
             .client
-            .post(format!("{}/chat/completions", self.endpoint))
+            .post(build_chat_url(&self.endpoint))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&json!({
                 "model": self.model,

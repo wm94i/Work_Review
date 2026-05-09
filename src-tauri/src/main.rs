@@ -1102,11 +1102,17 @@ fn should_probe_browser_url_before_change_detection(
     window_title: &str,
     last_app_name: Option<&str>,
     last_window_title: Option<&str>,
+    current_browser_url: Option<&str>,
 ) -> bool {
-    monitor::is_browser_app(app_name)
-        && !window_title.is_empty()
-        && last_app_name == Some(app_name)
-        && last_window_title == Some(window_title)
+    if !monitor::is_browser_app(app_name) || window_title.is_empty() {
+        return false;
+    }
+    // 首次遇到浏览器窗口时（last 为 None），也需要探测 URL
+    if last_app_name.is_none() || last_window_title.is_none() {
+        return current_browser_url.is_none();
+    }
+    // 同窗口持续使用时，探测 URL 变化
+    last_app_name == Some(app_name) && last_window_title == Some(window_title)
 }
 
 fn browser_change_capture_min_interval_ms(
@@ -1675,7 +1681,15 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
             )
         };
         let mut active_window = if let Some(window) = cached_active_window {
-            window
+            // 头像循环缓存不含浏览器 URL，如果是浏览器窗口则跳过缓存重新获取
+            if monitor::is_browser_app(&window.app_name) && window.browser_url.is_none() {
+                match monitor::get_active_window() {
+                    Ok(w) => w,
+                    Err(_) => window,
+                }
+            } else {
+                window
+            }
         } else {
             match monitor::get_active_window() {
                 Ok(w) => w,
@@ -1733,6 +1747,7 @@ async fn background_screenshot_task(state: Arc<Mutex<AppState>>, app: AppHandle)
             &active_window.window_title,
             last_app_name.as_deref(),
             last_app_window_title.as_deref(),
+            active_window.browser_url.as_deref(),
         );
         if should_probe_browser_url {
             if let Some(resolved_url) = monitor::resolve_browser_url_for_window(
@@ -3523,18 +3538,39 @@ mod tests {
             "项目文档",
             Some("Google Chrome"),
             Some("项目文档"),
+            None,
         ));
         assert!(!should_probe_browser_url_before_change_detection(
             "Google Chrome",
             "项目文档",
             Some("Google Chrome"),
             Some("另一个标签页"),
+            None,
         ));
         assert!(!should_probe_browser_url_before_change_detection(
             "Cursor",
             "main.rs",
             Some("Cursor"),
             Some("main.rs"),
+            None,
+        ));
+    }
+
+    #[test]
+    fn 首次遇到浏览器窗口时应探测url() {
+        assert!(should_probe_browser_url_before_change_detection(
+            "Google Chrome",
+            "项目文档",
+            None,
+            None,
+            None,
+        ));
+        assert!(!should_probe_browser_url_before_change_detection(
+            "Google Chrome",
+            "项目文档",
+            None,
+            None,
+            Some("https://example.com"),
         ));
     }
 
