@@ -157,11 +157,11 @@
           <!-- 策略选择：分段按钮 -->
           <div class="settings-field mb-3">
             <span class="settings-label">{t('settingsPrivacy.strategy')}</span>
-            <div class="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600">
+            <div class="flex gap-2">
               {#each privacyLevels as level}
                 <button
                   on:click={() => selectedLevel = level.value}
-                  class="segment-btn
+                  class="segment-btn border border-slate-200 dark:border-slate-600
                          {selectedLevel === level.value
                            ? level.activeClass
                            : 'settings-segment-idle'}"

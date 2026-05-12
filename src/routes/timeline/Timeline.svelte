@@ -6,7 +6,7 @@
   import { cache } from '../../lib/stores/cache.js';
   import { showToast } from '../../lib/stores/toast.js';
   import { appIconStore, getIconCacheKey, preloadAppIcons } from '../../lib/stores/iconCache.js';
-  import { categoryStore, hexToRGBA } from '../../lib/stores/categories.js';
+  import { categoryStore } from '../../lib/stores/categories.js';
   import {
     formatDurationLocalized,
     formatLocalizedTime,
@@ -333,10 +333,6 @@
     return cat.name || translateCategoryLabel(cat.key);
   }
 
-  function iconStyle(info) {
-    return `background: ${hexToRGBA(info.color, 0.95)}`;
-  }
-
   async function createCustomCategory() {
     const name = newCategoryName.trim();
     if (!name) {
@@ -400,6 +396,10 @@
       appName: activity.app_name,
       executablePath: activity.executable_path,
     })];
+
+    if (typeof base64 === 'string' && base64.length > 100) {
+      return resolveAppIconSrc(preferredAppName, base64);
+    }
 
     if (shouldPreferTimelineFallbackIcon(activity)) {
       return resolveAppIconSrc(preferredAppName, null);
@@ -968,8 +968,7 @@
                 <div class="timeline-featured-copy">
                   <div class="timeline-entry-meta timeline-entry-meta-featured">
                     <div class="timeline-entry-app">
-                      <div class="timeline-app-icon"
-                           style={iconStyle(info)}>
+                      <div class="timeline-app-icon">
                         {#if getTimelineIconSrc(activity)}
                           <img src={getTimelineIconSrc(activity)}
                                alt={activity.app_name}
@@ -996,8 +995,7 @@
             {:else}
               <div class="timeline-entry-card timeline-entry-card-compact timeline-entry-card-compact-grid">
                 <div class="timeline-entry-app timeline-entry-app-compact">
-                  <div class="timeline-app-icon"
-                       style={iconStyle(info)}>
+                  <div class="timeline-app-icon">
                     {#if getTimelineIconSrc(activity)}
                       <img src={getTimelineIconSrc(activity)}
                            alt={activity.app_name}
@@ -1071,8 +1069,7 @@
       <div class="timeline-detail-header p-6 border-b border-slate-200 dark:border-slate-700">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <div class="timeline-app-icon timeline-app-icon-lg"
-                 style={iconStyle(info)}>
+            <div class="timeline-app-icon timeline-app-icon-lg">
               {#if getTimelineIconSrc(selectedActivity)}
                 <img src={getTimelineIconSrc(selectedActivity)}
                      alt={selectedActivity.app_name}
@@ -1253,7 +1250,7 @@
               <span class="text-xs text-slate-400">{t('timeline.detail.saving')}</span>
             {/if}
           </div>
-          <div class="mt-3 flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600">
+          <div class="mt-3 flex gap-2">
             {#each [
               { value: 'full', label: t('timeline.detail.privacyFull'), activeClass: 'settings-segment-success' },
               { value: 'anonymized', label: t('timeline.detail.privacyAnonymized'), activeClass: 'settings-segment-warn' },
@@ -1261,7 +1258,7 @@
             ] as opt}
               <button
                 on:click={() => requestPrivacyRule(opt.value)}
-                class="segment-btn flex-1 text-center {(selectedActivity._privacyLevel || 'full') === opt.value ? opt.activeClass : 'settings-segment-idle'}"
+                class="segment-btn border border-slate-200 dark:border-slate-600 flex-1 text-center {(selectedActivity._privacyLevel || 'full') === opt.value ? opt.activeClass : 'settings-segment-idle'}"
                 disabled={privacySaving}
               >
                 {opt.label}
@@ -1660,7 +1657,11 @@
     overflow: hidden;
     flex-shrink: 0;
     color: #111827;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.92));
+    border: 1px solid rgba(226, 232, 240, 0.88);
+    box-shadow:
+      0 8px 18px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72);
   }
 
   .timeline-app-icon-lg {
