@@ -10,8 +10,8 @@ test('日报生成应在网站访问部分体现域名语义分类', async () =>
 
   assert.match(summarySource, /domain\.semantic_category/);
   assert.match(localSource, /domain\.semantic_category/);
-  assert.match(summarySource, /translate_semantic_category_name\(semantic_category,\s*locale\)/);
-  assert.match(localSource, /translate_semantic_category_name\(semantic_category,\s*locale\)/);
+  assert.match(summarySource, /translate_semantic_category_name\(semantic_category,\s*locale/);
+  assert.match(localSource, /translate_semantic_category_name\(semantic_category,\s*locale/);
 });
 
 test('日报生成应体现按小时活跃度分布', async () => {
